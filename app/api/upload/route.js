@@ -136,7 +136,7 @@ export async function POST(request) {
 
         // Merge extra fields (only add missing keys)
         let mergedExtra = {};
-        try { mergedExtra = existing.extra ? JSON.parse(existing.extra) : {}; } catch(e) {}
+        try { mergedExtra = existing.extra ? JSON.parse(existing.extra) : {}; } catch {}
         for (const [k, v] of Object.entries(parsed.extra)) {
           if (!(k in mergedExtra)) mergedExtra[k] = v;
         }

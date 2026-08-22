@@ -55,6 +55,9 @@ export async function POST(request) {
 
   try {
     const data = await request.json();
+    if (!data.orderNo || !String(data.orderNo).trim()) {
+      return NextResponse.json({ error: 'Order number is required' }, { status: 400 });
+    }
     const orderNo = sanitizeOrderNo(data.orderNo);
 
     const existing = await prisma.order.findUnique({ where: { orderNo } });
@@ -65,7 +68,7 @@ export async function POST(request) {
         orderNo,
         invoiceNo: data.invoiceNo || null,
         lrNo: data.lrNo || null,
-        sent: data.sent === true || data.sent === 'Yes' || data.sent === 'true',
+        sent: data.sent === true || data.sent === 'Yes' || data.sent === 'yes' || data.sent === 'true',
         notes: data.notes || null,
         extra: data.extra ? JSON.stringify(data.extra) : null,
         enteredBy: user.name,
@@ -90,6 +93,9 @@ export async function PUT(request) {
   try {
     const data = await request.json();
     const { id } = data;
+    if (!id) {
+      return NextResponse.json({ error: 'Order ID is required' }, { status: 400 });
+    }
 
     const updatedOrder = await prisma.order.update({
       where: { id },

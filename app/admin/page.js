@@ -6,6 +6,22 @@ export default function AdminDashboard() {
   const [tab, setTab] = useState('orders');
   const router = useRouter();
 
+  // Auth check on mount
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth');
+        const data = await res.json();
+        if (!data.user || data.user.role !== 'ADMIN') {
+          router.push('/');
+        }
+      } catch {
+        router.push('/');
+      }
+    }
+    checkAuth();
+  }, [router]);
+
   const handleLogout = async () => {
     try {
       const res = await fetch('/api/auth', { method: 'GET' });
@@ -15,10 +31,19 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout', name: data.user?.name, role: data.user?.role })
       });
-    } catch(e) {
+    } catch {
       // Logout attempt continued even if there's an error
     }
     router.push('/');
+  };
+
+  const handleExport = () => {
+    const link = document.createElement('a');
+    link.href = '/api/export';
+    link.setAttribute('download', 'orders_export.xlsx');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -49,6 +74,14 @@ export default function AdminDashboard() {
               </button>
             ))}
           </div>
+          <button 
+            className="secondary" 
+            onClick={handleExport}
+            style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+            title="Download Excel backup of all orders"
+          >
+            <span>📥</span> Export Excel
+          </button>
           <span style={{ fontSize: '0.8rem', color: 'var(--accent-rust)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
             ADMIN
           </span>
@@ -59,7 +92,7 @@ export default function AdminDashboard() {
       </nav>
 
       <div style={{ padding: '1.5rem 2rem' }}>
-        {tab === 'orders' && <OrdersTab />}
+        {tab === 'orders' && <OrdersTab onExport={handleExport} />}
         {tab === 'upload' && <UploadTab />}
         {tab === 'logs' && <LogsTab />}
         {tab === 'settings' && <SettingsTab />}
@@ -71,13 +104,13 @@ export default function AdminDashboard() {
 // ─────────────────────────────────────────
 // Orders Tab — Search & Edit
 // ─────────────────────────────────────────
-function OrdersTab() {
+function OrdersTab({ onExport }) {
   const [search, setSearch] = useState('');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isSearched, setIsSearched] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({});
+  const [editForm, setEditForm] = useState({ invoiceNo: '', lrNo: '', sent: false, notes: '' });
   const [saveMsg, setSaveMsg] = useState('');
 
   const handleSearch = async (e) => {
@@ -99,9 +132,11 @@ function OrdersTab() {
           sent: data.order.sent,
           notes: data.order.notes || '',
         });
+      } else {
+        setEditForm({ invoiceNo: '', lrNo: '', sent: false, notes: '' });
       }
       setIsSearched(true);
-    } catch (err) {
+    } catch {
       setSaveMsg('Error searching orders. Please try again.');
       setIsSearched(true);
     }
@@ -125,7 +160,9 @@ function OrdersTab() {
       } else {
         setSaveMsg(data.error || 'Failed to save');
       }
-    } catch(err) { setSaveMsg('Error saving'); }
+    } catch { 
+      setSaveMsg('Error saving'); 
+    }
     setLoading(false);
   };
 
@@ -147,21 +184,32 @@ function OrdersTab() {
       } else {
         setSaveMsg(data.error || 'Failed to save');
       }
-    } catch(err) { setSaveMsg('Error saving'); }
+    } catch { 
+      setSaveMsg('Error saving'); 
+    }
     setLoading(false);
   };
 
   const getExtraFields = (o) => {
     if (!o?.extra) return null;
-    try { return JSON.parse(o.extra); } catch(e) { return null; }
+    try { return JSON.parse(o.extra); } catch { return null; }
   };
 
   return (
     <div className="document-container" style={{ margin: '0 auto', maxWidth: '900px' }}>
-      <h2>Order Lookup &amp; Edit</h2>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-        Search any order number. If found, you can view or edit details. If not found, add it manually.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h2>Order Lookup &amp; Edit</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+            Search any order number. If found, you can view or edit details. If not found, add it manually.
+          </p>
+        </div>
+        {onExport && (
+          <button className="secondary" onClick={onExport} style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}>
+            📥 Export All to Excel
+          </button>
+        )}
+      </div>
 
       <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.75rem' }}>
         <input
@@ -326,7 +374,7 @@ function UploadTab() {
       } else {
         setResult({ ok: false, msg: `Error: ${data.error}` });
       }
-    } catch(e) {
+    } catch {
       setResult({ ok: false, msg: 'Upload failed. Please try again.' });
     }
     setUploading(false);
@@ -425,19 +473,41 @@ function LogsTab() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchLogs(); }, []);
-
   const fetchLogs = async (nameFilter = '') => {
     setLoading(true);
     try {
       const res = await fetch(`/api/logs?name=${encodeURIComponent(nameFilter)}`);
       const data = await res.json();
       if (res.ok) setLogs(data.logs);
-    } catch(e) {
+      else setLogs([]);
+    } catch {
       setLogs([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadInitial() {
+      try {
+        const res = await fetch('/api/logs');
+        const data = await res.json();
+        if (!ignore) {
+          if (res.ok) setLogs(data.logs);
+          else setLogs([]);
+        }
+      } catch {
+        if (!ignore) setLogs([]);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+    loadInitial();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   return (
     <div className="document-container" style={{ margin: '0 auto', maxWidth: '1000px' }}>
@@ -517,7 +587,10 @@ function SettingsTab() {
       } else {
         setMsg('Failed to update passwords.'); setIsError(true);
       }
-    } catch(e) { setMsg('Error saving settings.'); setIsError(true); }
+    } catch { 
+      setMsg('Error saving settings.'); 
+      setIsError(true); 
+    }
   };
 
   return (

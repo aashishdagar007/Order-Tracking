@@ -23,6 +23,18 @@ export async function POST(request) {
       return NextResponse.json({ success: true });
     }
 
+    if (action !== 'login') {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    }
+
+    if (!name || !password || !role) {
+      return NextResponse.json({ error: 'Name, role, and password are required' }, { status: 400 });
+    }
+
+    if (role !== 'ADMIN' && role !== 'WORKER') {
+      return NextResponse.json({ error: 'Invalid role specified' }, { status: 400 });
+    }
+
     // Login Action
     const configKey = role === 'ADMIN' ? 'adminPassword' : 'workerPassword';
     let config = await prisma.config.findUnique({ where: { key: configKey } });
@@ -40,7 +52,7 @@ export async function POST(request) {
     }
 
     // Generate JWT
-    const token = await new SignJWT({ name, role })
+    const token = await new SignJWT({ name: name.trim(), role })
       .setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('24h')
       .sign(secret);
@@ -57,7 +69,7 @@ export async function POST(request) {
 
     // Log the login event
     await prisma.log.create({
-      data: { name, role, action: 'Login', detail: 'User logged in' }
+      data: { name: name.trim(), role, action: 'Login', detail: 'User logged in' }
     });
 
     return NextResponse.json({ success: true, role });
@@ -67,7 +79,7 @@ export async function POST(request) {
   }
 }
 
-export async function GET(request) {
+export async function GET() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get('token')?.value;
@@ -78,7 +90,7 @@ export async function GET(request) {
 
     const { payload } = await jwtVerify(token, secret);
     return NextResponse.json({ user: payload });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ user: null });
   }
 }

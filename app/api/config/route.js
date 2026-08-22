@@ -24,19 +24,19 @@ export async function PUT(request) {
   try {
     const { workerPassword, adminPassword } = await request.json();
 
-    if (workerPassword) {
+    if (workerPassword && String(workerPassword).trim()) {
       await prisma.config.upsert({
         where: { key: 'workerPassword' },
-        update: { value: workerPassword },
-        create: { key: 'workerPassword', value: workerPassword }
+        update: { value: String(workerPassword).trim() },
+        create: { key: 'workerPassword', value: String(workerPassword).trim() }
       });
     }
 
-    if (adminPassword) {
+    if (adminPassword && String(adminPassword).trim()) {
       await prisma.config.upsert({
         where: { key: 'adminPassword' },
-        update: { value: adminPassword },
-        create: { key: 'adminPassword', value: adminPassword }
+        update: { value: String(adminPassword).trim() },
+        create: { key: 'adminPassword', value: String(adminPassword).trim() }
       });
     }
 

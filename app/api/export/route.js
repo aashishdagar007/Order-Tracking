@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { jwtVerify } from 'jose';
 import prisma from '@/lib/prisma';
@@ -18,7 +17,7 @@ async function getUser() {
   }
 }
 
-export async function GET(request) {
+export async function GET() {
   const user = await getUser();
   if (!user || user.role !== 'ADMIN') return new Response('Unauthorized', { status: 401 });
 
@@ -47,7 +46,7 @@ export async function GET(request) {
           for (const [k, v] of Object.entries(extraJson)) {
             base[k] = v;
           }
-        } catch(e) {}
+        } catch {}
       }
       return base;
     });

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function WorkerDashboard() {
@@ -8,6 +8,22 @@ export default function WorkerDashboard() {
   const [isSearched, setIsSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Auth check on mount
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth');
+        const data = await res.json();
+        if (!data.user) {
+          router.push('/');
+        }
+      } catch {
+        router.push('/');
+      }
+    }
+    checkAuth();
+  }, [router]);
 
   // New Order Form state (if NOT ON FILE)
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -25,7 +41,7 @@ export default function WorkerDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout', name: data.user?.name, role: data.user?.role })
       });
-    } catch(e) {}
+    } catch {}
     router.push('/');
   };
 
@@ -45,7 +61,7 @@ export default function WorkerDashboard() {
         setInvoiceNo(''); setLrNo(''); setSent(false); setNotes('');
       }
       setIsSearched(true);
-    } catch (err) {
+    } catch {
       setSaveMsg('Error loading order data. Please try again.');
     }
     setLoading(false);
@@ -68,15 +84,15 @@ export default function WorkerDashboard() {
       } else {
         setSaveMsg(data.error || 'Failed to save');
       }
-    } catch(err) {
+    } catch {
       setSaveMsg('Error saving order');
     }
     setLoading(false);
   };
 
-  const getExtraFields = (order) => {
-    if (!order?.extra) return null;
-    try { return JSON.parse(order.extra); } catch(e) { return null; }
+  const getExtraFields = (ord) => {
+    if (!ord?.extra) return null;
+    try { return JSON.parse(ord.extra); } catch { return null; }
   };
 
   return (

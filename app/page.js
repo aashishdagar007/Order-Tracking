@@ -38,7 +38,7 @@ export default function Login() {
       } else {
         setError(data.error || 'Invalid password. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('Connection error. Please try again.');
     }
     setLoading(false);
