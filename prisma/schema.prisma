@@ -15,17 +15,42 @@ model Config {
 }
 
 model Order {
-  id         String   @id @default(cuid())
-  orderNo    String   @unique
-  invoiceNo  String?
-  lrNo       String?
-  sent       Boolean  @default(false)
-  notes      String?
-  extra      String?  // JSON string
-  enteredBy  String?
-  enteredAt  DateTime @default(now())
-  updatedBy  String?
-  updatedAt  DateTime @updatedAt
+  id           String        @id @default(cuid())
+  orderNo      String        @unique
+  invoiceNo    String?
+  lrNo         String?
+  sent         Boolean       @default(false)
+  status       String        @default("RECEIVED") // RECEIVED, PICKING, PACKING, QUALITY_CHECK, STAGED, DISPATCHED, ON_HOLD
+  priority     String        @default("STANDARD") // STANDARD, EXPRESS, URGENT
+  zone         String?       // Warehouse Aisle / Rack / Bin e.g. "Zone A - R02 - B04"
+  dockBay      String?       // Outbound Staging Bay / Dock Door e.g. "Bay 3"
+  transporter  String?       // Carrier / Courier name e.g. "BlueDart", "Delhivery"
+  vehicleNo    String?       // Transport truck plate number
+  boxCount     Int           @default(1)
+  weightKg     Float?
+  notes        String?
+  extra        String?       // JSON string for raw Excel attributes
+  enteredBy    String?
+  enteredAt    DateTime      @default(now())
+  pickedBy     String?
+  pickedAt     DateTime?
+  packedBy     String?
+  packedAt     DateTime?
+  dispatchedAt DateTime?
+  updatedBy    String?
+  updatedAt    DateTime      @updatedAt
+  events       OrderEvent[]
+}
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  actorName String
+  actorRole String
+  note      String?
+  timestamp DateTime @default(now())
 }
 
 model Log {
