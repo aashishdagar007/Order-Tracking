@@ -1,21 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { jwtVerify } from 'jose';
 import prisma from '@/lib/prisma';
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-production');
-
-async function getUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, secret);
-    return payload;
-  } catch {
-    return null;
-  }
-}
+import { getSessionUser, updateWorkerHeartbeat } from '@/lib/auth';
 
 /** Normalize an order number: trim whitespace, strip trailing .0 from Excel floats, uppercase */
 function sanitizeOrderNo(raw) {
@@ -25,8 +10,12 @@ function sanitizeOrderNo(raw) {
 }
 
 export async function GET(request) {
-  const user = await getUser();
+  const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (user.role === 'WORKER' && user.permissions?.canViewOrders === false) {
+    return NextResponse.json({ error: 'Access denied: You do not have permission to view orders' }, { status: 403 });
+  }
 
   const { searchParams } = new URL(request.url);
   const orderNo = searchParams.get('orderNo');
@@ -113,8 +102,12 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const user = await getUser();
+  const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (user.role === 'WORKER' && user.permissions?.canPickPack === false) {
+    return NextResponse.json({ error: 'Access denied: You do not have permission to add orders' }, { status: 403 });
+  }
 
   try {
     const data = await request.json();
@@ -128,6 +121,10 @@ export async function POST(request) {
 
     const status = data.status || 'RECEIVED';
     const isDispatched = status === 'DISPATCHED' || data.sent === true || data.sent === 'yes' || data.sent === 'true';
+
+    if (isDispatched && user.role === 'WORKER' && user.permissions?.canDispatch === false) {
+      return NextResponse.json({ error: 'Access denied: You do not have dispatch clearance' }, { status: 403 });
+    }
 
     const newOrder = await prisma.order.create({
       data: {
@@ -161,8 +158,11 @@ export async function POST(request) {
       }
     });
 
+    await updateWorkerHeartbeat(user.userId, `Registered new order ${orderNo}`);
+
     await prisma.log.create({
       data: {
+        userId: user.userId,
         name: user.name,
         role: user.role,
         action: 'Add Order',
@@ -178,7 +178,7 @@ export async function POST(request) {
 }
 
 export async function PUT(request) {
-  const user = await getUser();
+  const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -186,9 +186,17 @@ export async function PUT(request) {
 
     // ── Batch Status Update Support ──
     if (Array.isArray(data.ids) && data.ids.length > 0) {
-      const { ids, status: batchStatus, transporter, vehicleNo, dockBay, note } = data;
-      const now = new Date();
+      if (user.role === 'WORKER' && user.permissions?.canPickPack === false) {
+        return NextResponse.json({ error: 'Access denied: You do not have processing permissions' }, { status: 403 });
+      }
 
+      const { ids, status: batchStatus, transporter, vehicleNo, dockBay, note } = data;
+
+      if (batchStatus === 'DISPATCHED' && user.role === 'WORKER' && user.permissions?.canDispatch === false) {
+        return NextResponse.json({ error: 'Access denied: You do not have dispatch clearance' }, { status: 403 });
+      }
+
+      const now = new Date();
       const updatePayload = {
         updatedBy: user.name,
       };
@@ -235,8 +243,11 @@ export async function PUT(request) {
         });
       }
 
+      await updateWorkerHeartbeat(user.userId, `Batch updated ${ids.length} orders to ${batchStatus || 'new state'}`);
+
       await prisma.log.create({
         data: {
+          userId: user.userId,
           name: user.name,
           role: user.role,
           action: 'Batch Update',
@@ -258,10 +269,19 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
-    const now = new Date();
     const targetStatus = data.status || currentOrder.status;
     const isStatusChanging = data.status && data.status !== currentOrder.status;
 
+    if (user.role === 'WORKER') {
+      if (targetStatus === 'DISPATCHED' && user.permissions?.canDispatch === false) {
+        return NextResponse.json({ error: 'Access denied: You do not have dispatch clearance' }, { status: 403 });
+      }
+      if (isStatusChanging && user.permissions?.canPickPack === false) {
+        return NextResponse.json({ error: 'Access denied: You do not have picking/packing permissions' }, { status: 403 });
+      }
+    }
+
+    const now = new Date();
     const updateData = {
       invoiceNo: data.invoiceNo !== undefined ? (data.invoiceNo || null) : undefined,
       lrNo: data.lrNo !== undefined ? (data.lrNo || null) : undefined,
@@ -319,8 +339,11 @@ export async function PUT(request) {
       updatedOrder.events.push(event);
     }
 
+    await updateWorkerHeartbeat(user.userId, `Processed order ${updatedOrder.orderNo} (${updatedOrder.status})`);
+
     await prisma.log.create({
       data: {
+        userId: user.userId,
         name: user.name,
         role: user.role,
         action: 'Edit Order',

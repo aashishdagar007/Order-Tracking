@@ -1,24 +1,28 @@
-import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import prisma from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-production');
+import { hashPassword, verifyPassword, createSessionToken, getSessionUser, updateWorkerHeartbeat } from '@/lib/auth';
 
 export async function POST(request) {
   try {
-    const { action, name, role, password } = await request.json();
+    const { action, username, name, role, password } = await request.json();
 
     if (action === 'logout') {
+      const user = await getSessionUser();
       const cookieStore = await cookies();
       cookieStore.delete('token');
-      
-      // Always log logout event, use provided name/role or defaults
-      const logName = name || 'Unknown User';
-      const logRole = role || 'UNKNOWN';
-      
+
+      const logName = user?.name || name || 'Unknown User';
+      const logRole = user?.role || role || 'UNKNOWN';
+
       await prisma.log.create({
-        data: { name: logName, role: logRole, action: 'Logout', detail: 'User logged out' }
+        data: {
+          userId: user?.userId || null,
+          name: logName,
+          role: logRole,
+          action: 'Logout',
+          detail: 'User logged out'
+        }
       });
       return NextResponse.json({ success: true });
     }
@@ -27,35 +31,64 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    if (!name || !password || !role) {
-      return NextResponse.json({ error: 'Name, role, and password are required' }, { status: 400 });
+    const loginIdentifier = (username || name || '').trim();
+    if (!loginIdentifier || !password) {
+      return NextResponse.json({ error: 'Username / Name and password are required' }, { status: 400 });
     }
 
-    if (role !== 'ADMIN' && role !== 'WORKER') {
-      return NextResponse.json({ error: 'Invalid role specified' }, { status: 400 });
-    }
+    // Find user by username or name
+    let user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: loginIdentifier },
+          { name: loginIdentifier }
+        ]
+      }
+    });
 
-    // Login Action
-    const configKey = role === 'ADMIN' ? 'adminPassword' : 'workerPassword';
-    let config = await prisma.config.findUnique({ where: { key: configKey } });
-    
-    // Seed default if not exists
-    if (!config) {
-      const defaultValue = role === 'ADMIN' ? 'admin123' : 'worker123';
-      config = await prisma.config.create({
-        data: { key: configKey, value: defaultValue }
+    // If no user exists and database is fresh, create default admin
+    if (!user && role === 'ADMIN' && loginIdentifier.toLowerCase() === 'admin') {
+      user = await prisma.user.create({
+        data: {
+          username: 'admin',
+          name: 'Master Admin',
+          passwordHash: hashPassword('admin123'),
+          role: 'ADMIN',
+          canViewOrders: true,
+          canPickPack: true,
+          canDispatch: true,
+          canUpload: true,
+          canExport: true,
+          canViewLogs: true,
+        }
       });
     }
 
-    if (config.value !== password) {
-      return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
+    if (!user) {
+      return NextResponse.json({ error: 'Account not found. Please contact your warehouse admin.' }, { status: 401 });
     }
 
-    // Generate JWT
-    const token = await new SignJWT({ name: name.trim(), role })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('24h')
-      .sign(secret);
+    if (!user.isActive) {
+      return NextResponse.json({ error: 'Your account is deactivated. Please contact your admin.' }, { status: 403 });
+    }
+
+    const isPasswordValid = verifyPassword(password, user.passwordHash);
+    if (!isPasswordValid) {
+      return NextResponse.json({ error: 'Invalid credentials. Please try again.' }, { status: 401 });
+    }
+
+    // Update lastSeen
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastSeen: new Date(),
+        lastAction: 'Logged into warehouse terminal',
+        lastActionAt: new Date(),
+      }
+    });
+
+    // Generate JWT with permissions and admin scope
+    const token = await createSessionToken(user);
 
     // Set HTTP-only cookie
     const cookieStore = await cookies();
@@ -69,10 +102,33 @@ export async function POST(request) {
 
     // Log the login event
     await prisma.log.create({
-      data: { name: name.trim(), role, action: 'Login', detail: 'User logged in' }
+      data: {
+        userId: user.id,
+        name: user.name,
+        role: user.role,
+        action: 'Login',
+        detail: `Logged in via ${user.role} terminal`
+      }
     });
 
-    return NextResponse.json({ success: true, role });
+    return NextResponse.json({
+      success: true,
+      role: user.role,
+      user: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+        permissions: {
+          canViewOrders: user.canViewOrders,
+          canPickPack: user.canPickPack,
+          canDispatch: user.canDispatch,
+          canUpload: user.canUpload,
+          canExport: user.canExport,
+          canViewLogs: user.canViewLogs,
+        }
+      }
+    });
   } catch (error) {
     console.error('Auth API Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -81,16 +137,66 @@ export async function POST(request) {
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get('token')?.value;
-
-    if (!token) {
+    const user = await getSessionUser();
+    if (!user) {
       return NextResponse.json({ user: null });
     }
 
-    const { payload } = await jwtVerify(token, secret);
-    return NextResponse.json({ user: payload });
+    // Refresh user state from db to verify active status
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.userId },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        role: true,
+        adminId: true,
+        canViewOrders: true,
+        canPickPack: true,
+        canDispatch: true,
+        canUpload: true,
+        canExport: true,
+        canViewLogs: true,
+        isActive: true,
+      }
+    });
+
+    if (!dbUser || !dbUser.isActive) {
+      const cookieStore = await cookies();
+      cookieStore.delete('token');
+      return NextResponse.json({ user: null });
+    }
+
+    return NextResponse.json({
+      user: {
+        ...user,
+        permissions: {
+          canViewOrders: dbUser.canViewOrders,
+          canPickPack: dbUser.canPickPack,
+          canDispatch: dbUser.canDispatch,
+          canUpload: dbUser.canUpload,
+          canExport: dbUser.canExport,
+          canViewLogs: dbUser.canViewLogs,
+        }
+      }
+    });
   } catch {
     return NextResponse.json({ user: null });
+  }
+}
+
+export async function PATCH(request) {
+  try {
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { actionText } = await request.json();
+    await updateWorkerHeartbeat(user.userId, actionText);
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'Failed to update heartbeat' }, { status: 500 });
   }
 }

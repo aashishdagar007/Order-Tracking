@@ -1,12 +1,20 @@
 const { PrismaClient } = require('@prisma/client');
 const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const path = require('path');
+const crypto = require('crypto');
 
 const dbPath = path.join(__dirname, 'dev.db');
 const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
 const prisma = new PrismaClient({ adapter });
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(password, salt, 64);
+  return `${salt}:${derivedKey.toString('hex')}`;
+}
+
 async function main() {
+  // Legacy config seed
   await prisma.config.upsert({
     where: { key: 'adminPassword' },
     update: {},
@@ -17,6 +25,106 @@ async function main() {
     where: { key: 'workerPassword' },
     update: {},
     create: { key: 'workerPassword', value: 'worker123' },
+  });
+
+  // 1. Seed Master Admin User
+  const adminHash = hashPassword('admin123');
+  const admin = await prisma.user.upsert({
+    where: { username: 'admin' },
+    update: {
+      passwordHash: adminHash,
+      role: 'ADMIN',
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: true,
+      canUpload: true,
+      canExport: true,
+      canViewLogs: true,
+      isActive: true,
+    },
+    create: {
+      username: 'admin',
+      name: 'Master Admin',
+      passwordHash: adminHash,
+      role: 'ADMIN',
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: true,
+      canUpload: true,
+      canExport: true,
+      canViewLogs: true,
+      isActive: true,
+      lastAction: 'Warehouse terminal initialized',
+      lastActionAt: new Date(),
+    }
+  });
+
+  // 2. Seed Managed Worker Accounts
+  const workerHash = hashPassword('worker123');
+  await prisma.user.upsert({
+    where: { username: 'worker1' },
+    update: {
+      adminId: admin.id,
+      name: 'John Picker (Aisle A)',
+      passwordHash: workerHash,
+      role: 'WORKER',
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: true,
+      canUpload: false,
+      canExport: false,
+      canViewLogs: false,
+      isActive: true,
+    },
+    create: {
+      username: 'worker1',
+      name: 'John Picker (Aisle A)',
+      passwordHash: workerHash,
+      role: 'WORKER',
+      adminId: admin.id,
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: true,
+      canUpload: false,
+      canExport: false,
+      canViewLogs: false,
+      isActive: true,
+      lastAction: 'Station initialized in Zone A',
+      lastActionAt: new Date(),
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { username: 'worker2' },
+    update: {
+      adminId: admin.id,
+      name: 'Sarah Packer (Station 2)',
+      passwordHash: workerHash,
+      role: 'WORKER',
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: false,
+      canUpload: false,
+      canExport: false,
+      canViewLogs: false,
+      isActive: true,
+    },
+    create: {
+      username: 'worker2',
+      name: 'Sarah Packer (Station 2)',
+      passwordHash: workerHash,
+      role: 'WORKER',
+      adminId: admin.id,
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: false,
+      canUpload: false,
+      canExport: false,
+      canViewLogs: false,
+      isActive: true,
+      lastAction: 'Inspecting Order ORD-1006',
+      lastActionAt: new Date(),
+    }
   });
 
   const sampleOrders = [
@@ -33,7 +141,7 @@ async function main() {
       boxCount: 3,
       weightKg: 24.5,
       notes: 'Fragile electrical components. Keep dry.',
-      enteredBy: 'Warehouse Admin'
+      enteredBy: 'Master Admin'
     },
     {
       orderNo: 'ORD-1002',
@@ -48,7 +156,7 @@ async function main() {
       boxCount: 2,
       weightKg: 15.0,
       notes: 'Priority air cargo consignment.',
-      enteredBy: 'Import Tool'
+      enteredBy: 'John Picker (Aisle A)'
     },
     {
       orderNo: 'ORD-1003',
@@ -63,7 +171,7 @@ async function main() {
       boxCount: 5,
       weightKg: 42.8,
       notes: 'Industrial hardware tools.',
-      enteredBy: 'Warehouse Admin'
+      enteredBy: 'Sarah Packer (Station 2)'
     },
     {
       orderNo: 'ORD-1004',
@@ -78,7 +186,7 @@ async function main() {
       boxCount: 1,
       weightKg: 8.2,
       notes: 'Standard carton package.',
-      enteredBy: 'Excel Upload'
+      enteredBy: 'Master Admin'
     },
     {
       orderNo: 'ORD-1005',
@@ -93,7 +201,7 @@ async function main() {
       boxCount: 4,
       weightKg: 38.0,
       notes: 'Dispatched on morning route.',
-      enteredBy: 'Warehouse Admin',
+      enteredBy: 'Master Admin',
       dispatchedAt: new Date()
     },
     {
@@ -109,7 +217,7 @@ async function main() {
       boxCount: 2,
       weightKg: 18.4,
       notes: 'Awaiting QC seal and barcode affixing.',
-      enteredBy: 'Warehouse Admin'
+      enteredBy: 'Sarah Packer (Station 2)'
     }
   ];
 
@@ -139,17 +247,18 @@ async function main() {
           create: {
             status: ord.status,
             actorName: ord.enteredBy,
-            actorRole: 'ADMIN',
-            note: 'Initial seed record'
+            actorRole: ord.enteredBy.includes('Admin') ? 'ADMIN' : 'WORKER',
+            note: 'Initial inventory entry'
           }
         }
       }
     });
   }
 
-  console.log('✅ Database seeded with warehouse configuration and sample inventory orders!');
-  console.log('  Worker password: worker123');
-  console.log('  Admin password:  admin123');
+  console.log('✅ Database successfully seeded!');
+  console.log('  Admin Login:  admin   / admin123');
+  console.log('  Worker 1:     worker1 / worker123 (Full permissions)');
+  console.log('  Worker 2:     worker2 / worker123 (Pick & Pack only)');
 }
 
 main()

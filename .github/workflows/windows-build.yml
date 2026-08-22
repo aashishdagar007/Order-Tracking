@@ -1,0 +1,68 @@
+name: Build Windows Inno Setup EXE
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows Installer (Inno Setup 7)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build Next.js Web Application
+        run: npm run build
+
+      - name: Stage Windows Distribution Files
+        run: node windows/build_windows_dist.js
+
+      - name: Download Portable Node.js Runtime for Bundling
+        shell: pwsh
+        run: |
+          $nodeZipUrl = "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip"
+          $zipPath = "_dist/node-win.zip"
+          Write-Host "Downloading portable Node.js runtime..."
+          Invoke-WebRequest -Uri $nodeZipUrl -OutFile $zipPath
+          Write-Host "Extracting portable runtime..."
+          Expand-Archive -Path $zipPath -DestinationPath "_dist/temp_node"
+          New-Item -ItemType Directory -Force -Path "_dist/runtime"
+          Copy-Item -Path "_dist/temp_node/node-v20.18.0-win-x64/node.exe" -Destination "_dist/runtime/node.exe"
+          Remove-Item -Recurse -Force "_dist/temp_node", $zipPath
+          Write-Host "Portable Node runtime configured in _dist/runtime/node.exe"
+
+      - name: Compile Inno Setup 7 Installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.4
+        with:
+          path: windows/installer.iss
+
+      - name: Upload Windows Setup EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Warehouse-WMS-Windows-Setup
+          path: windows/Output/*.exe
+          if-no-files-found: warn
+
+      - name: Publish Windows EXE to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows/Output/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

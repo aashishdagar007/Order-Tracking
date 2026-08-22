@@ -13,6 +13,7 @@ const STATUS_COLUMNS = [
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState('orders');
+  const [currentUser, setCurrentUser] = useState(null);
   const router = useRouter();
 
   // Auth check on mount
@@ -23,6 +24,8 @@ export default function AdminDashboard() {
         const data = await res.json();
         if (!data.user || data.user.role !== 'ADMIN') {
           router.push('/');
+        } else {
+          setCurrentUser(data.user);
         }
       } catch {
         router.push('/');
@@ -62,9 +65,11 @@ export default function AdminDashboard() {
           <span>Warehouse Master Control</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '0' }}>
+          <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap' }}>
             {[
               { key: 'orders', label: 'Operations & Kanban' },
+              { key: 'workers', label: 'Workers & Permissions' },
+              { key: 'activity', label: 'Live Worker Activity 🟢' },
               { key: 'upload', label: 'Upload Excel' },
               { key: 'logs', label: 'Activity Log' },
               { key: 'settings', label: 'Security Settings' },
@@ -73,12 +78,12 @@ export default function AdminDashboard() {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 style={{
-                  padding: '0.5rem 1rem',
+                  padding: '0.5rem 0.9rem',
                   background: tab === t.key ? 'var(--text-main)' : 'transparent',
                   color: tab === t.key ? 'var(--bg-paper-lighter)' : 'var(--text-main)',
                   border: '1px solid var(--border-color)',
                   borderRadius: 0,
-                  fontSize: '0.85rem',
+                  fontSize: '0.82rem',
                   fontWeight: 600,
                 }}
               >
@@ -90,17 +95,17 @@ export default function AdminDashboard() {
           <button
             className="secondary"
             onClick={handleExport}
-            style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
+            style={{ padding: '0.4rem 0.85rem', fontSize: '0.82rem' }}
             title="Download full Excel manifest backup"
           >
             <span>📥</span> Export Excel
           </button>
 
           <span style={{ fontSize: '0.8rem', color: 'var(--accent-rust)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-            ADMIN
+            {currentUser?.name ? currentUser.name.toUpperCase() : 'ADMIN'}
           </span>
 
-          <button className="secondary" onClick={handleLogout} style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+          <button className="secondary" onClick={handleLogout} style={{ padding: '0.4rem 0.85rem', fontSize: '0.82rem' }}>
             Logout
           </button>
         </div>
@@ -108,7 +113,9 @@ export default function AdminDashboard() {
 
       {/* Main Content Area */}
       <div style={{ padding: '1.5rem 2rem' }}>
-        {tab === 'orders' && <OperationsTab onExport={handleExport} />}
+        {tab === 'orders' && <OperationsTab />}
+        {tab === 'workers' && <WorkersTab />}
+        {tab === 'activity' && <LiveActivityTab />}
         {tab === 'upload' && <UploadTab />}
         {tab === 'logs' && <LogsTab />}
         {tab === 'settings' && <SettingsTab />}
@@ -287,9 +294,7 @@ function OperationsTab() {
 
   return (
     <div>
-      {/* ───────────────────────────────────────── */}
       {/* Top Live Warehouse KPI Stat Cards */}
-      {/* ───────────────────────────────────────── */}
       {stats && (
         <div className="grid-4" style={{ marginBottom: '1.75rem' }}>
           <div className="stat-card">
@@ -321,9 +326,7 @@ function OperationsTab() {
         </div>
       )}
 
-      {/* ───────────────────────────────────────── */}
       {/* Operational Controls & Filter Bar */}
-      {/* ───────────────────────────────────────── */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem',
@@ -421,9 +424,7 @@ function OperationsTab() {
         </div>
       </div>
 
-      {/* ───────────────────────────────────────── */}
-      {/* KANBAN BOARD VIEW */}
-      {/* ───────────────────────────────────────── */}
+      {/* Kanban Board View */}
       {viewMode === 'kanban' && (
         <div className="kanban-board">
           {STATUS_COLUMNS.map((col) => {
@@ -478,9 +479,7 @@ function OperationsTab() {
         </div>
       )}
 
-      {/* ───────────────────────────────────────── */}
-      {/* TABLE MANIFEST GRID VIEW */}
-      {/* ───────────────────────────────────────── */}
+      {/* Table Manifest Grid View */}
       {viewMode === 'table' && (
         <div style={{ overflowX: 'auto', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)', borderRadius: '2px' }}>
           <table className="manifest-table" style={{ margin: 0 }}>
@@ -571,9 +570,7 @@ function OperationsTab() {
         </div>
       )}
 
-      {/* ───────────────────────────────────────── */}
       {/* Edit Order Modal */}
-      {/* ───────────────────────────────────────── */}
       {editModalOpen && selectedOrder && (
         <div className="modal-overlay" onClick={() => setEditModalOpen(false)}>
           <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
@@ -656,9 +653,7 @@ function OperationsTab() {
         </div>
       )}
 
-      {/* ───────────────────────────────────────── */}
       {/* Batch / Bulk Operations Modal */}
-      {/* ───────────────────────────────────────── */}
       {bulkModalOpen && (
         <div className="modal-overlay" onClick={() => setBulkModalOpen(false)}>
           <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
@@ -710,9 +705,7 @@ function OperationsTab() {
         </div>
       )}
 
-      {/* ───────────────────────────────────────── */}
       {/* Printable Gate Pass Modal */}
-      {/* ───────────────────────────────────────── */}
       {gatePassOpen && (
         <div className="modal-overlay" onClick={() => setGatePassOpen(false)}>
           <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px' }}>
@@ -780,6 +773,548 @@ function OperationsTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// Workers & Permissions Tab
+// ─────────────────────────────────────────
+function WorkersTab() {
+  const [workers, setWorkers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editWorker, setEditWorker] = useState(null);
+  const [form, setForm] = useState({
+    username: '',
+    name: '',
+    password: '',
+    canViewOrders: true,
+    canPickPack: true,
+    canDispatch: false,
+    canUpload: false,
+    canExport: false,
+    canViewLogs: false,
+    isActive: true,
+  });
+  const [msg, setMsg] = useState('');
+  const [isError, setIsError] = useState(false);
+
+  const fetchWorkers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      if (res.ok) setWorkers(data.workers || []);
+      else setWorkers([]);
+    } catch {
+      setWorkers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/users');
+        const data = await res.json();
+        if (!ignore && res.ok) setWorkers(data.workers || []);
+      } catch {
+        if (!ignore) setWorkers([]);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+    load();
+    return () => { ignore = true; };
+  }, []);
+
+  const openCreateModal = () => {
+    setEditWorker(null);
+    setForm({
+      username: '',
+      name: '',
+      password: '',
+      canViewOrders: true,
+      canPickPack: true,
+      canDispatch: false,
+      canUpload: false,
+      canExport: false,
+      canViewLogs: false,
+      isActive: true,
+    });
+    setMsg('');
+    setModalOpen(true);
+  };
+
+  const openEditModal = (worker) => {
+    setEditWorker(worker);
+    setForm({
+      username: worker.username,
+      name: worker.name,
+      password: '',
+      canViewOrders: worker.canViewOrders,
+      canPickPack: worker.canPickPack,
+      canDispatch: worker.canDispatch,
+      canUpload: worker.canUpload,
+      canExport: worker.canExport,
+      canViewLogs: worker.canViewLogs,
+      isActive: worker.isActive,
+    });
+    setMsg('');
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMsg('');
+    try {
+      const method = editWorker ? 'PUT' : 'POST';
+      const payload = editWorker
+        ? { id: editWorker.id, ...form }
+        : form;
+
+      const res = await fetch('/api/users', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setModalOpen(false);
+        fetchWorkers();
+      } else {
+        setMsg(data.error || 'Failed to save worker');
+        setIsError(true);
+      }
+    } catch {
+      setMsg('Connection error saving worker');
+      setIsError(true);
+    }
+  };
+
+  const handleDelete = async (worker) => {
+    if (!confirm(`Are you sure you want to delete worker "${worker.name}" (@${worker.username})?`)) return;
+    try {
+      const res = await fetch(`/api/users?id=${worker.id}`, { method: 'DELETE' });
+      if (res.ok) fetchWorkers();
+    } catch {}
+  };
+
+  return (
+    <div className="document-container" style={{ margin: '0 auto', maxWidth: '1100px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h2>Worker Roster &amp; Access Controls</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+            Manage worker accounts under your supervision and customize granular operation permissions.
+          </p>
+        </div>
+        <button type="button" className="btn-accent" onClick={openCreateModal}>
+          ➕ Add New Worker
+        </button>
+      </div>
+      <hr />
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="manifest-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Worker Name</th>
+              <th>Username</th>
+              <th>Access Permissions</th>
+              <th>Last Seen</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  Loading worker accounts...
+                </td>
+              </tr>
+            )}
+            {!loading && workers.map((w) => (
+              <tr key={w.id} style={{ opacity: w.isActive ? 1 : 0.6 }}>
+                <td>
+                  <span style={{
+                    padding: '0.2rem 0.5rem', borderRadius: '2px', fontSize: '0.75rem', fontWeight: 700,
+                    background: w.isActive ? 'rgba(58,122,81,0.12)' : 'rgba(178,74,53,0.12)',
+                    color: w.isActive ? 'var(--accent-green)' : 'var(--accent-rust)'
+                  }}>
+                    {w.isActive ? 'ACTIVE' : 'DEACTIVATED'}
+                  </span>
+                </td>
+                <td style={{ fontWeight: 600 }}>{w.name}</td>
+                <td><span className="mono">@{w.username}</span></td>
+                <td>
+                  <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                    <span className={`permission-chip ${w.canViewOrders ? 'granted' : 'denied'}`}>
+                      {w.canViewOrders ? '✓' : '✗'} View Orders
+                    </span>
+                    <span className={`permission-chip ${w.canPickPack ? 'granted' : 'denied'}`}>
+                      {w.canPickPack ? '✓' : '✗'} Pick/Pack
+                    </span>
+                    <span className={`permission-chip ${w.canDispatch ? 'granted' : 'denied'}`}>
+                      {w.canDispatch ? '✓' : '✗'} Dispatch
+                    </span>
+                    <span className={`permission-chip ${w.canUpload ? 'granted' : 'denied'}`}>
+                      {w.canUpload ? '✓' : '✗'} Upload Excel
+                    </span>
+                    <span className={`permission-chip ${w.canExport ? 'granted' : 'denied'}`}>
+                      {w.canExport ? '✓' : '✗'} Export
+                    </span>
+                  </div>
+                </td>
+                <td className="mono" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  {w.lastSeen ? new Date(w.lastSeen).toLocaleString() : 'Never'}
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => openEditModal(w)}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.78rem' }}
+                    >
+                      ✎ Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => handleDelete(w)}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.78rem', color: 'var(--accent-rust)' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!loading && workers.length === 0 && (
+              <tr>
+                <td colSpan="6" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                  No workers found. Click &quot;Add New Worker&quot; to create your first worker account.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add / Edit Worker Modal */}
+      {modalOpen && (
+        <div className="modal-overlay" onClick={() => setModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <h3>{editWorker ? `Edit Worker: ${editWorker.name}` : 'Register New Warehouse Worker'}</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.3rem 0 1rem' }}>
+              Set credentials and assign specific task clearances.
+            </p>
+            <hr />
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="grid-2">
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, fontSize: '0.85rem' }}>Full Name</label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="e.g. John Doe (Station 4)"
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, fontSize: '0.85rem' }}>Username</label>
+                  <input
+                    type="text"
+                    value={form.username}
+                    onChange={(e) => setForm({ ...form, username: e.target.value })}
+                    placeholder="e.g. jdoe_pk"
+                    disabled={!!editWorker}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontWeight: 600, fontSize: '0.85rem' }}>
+                  {editWorker ? 'New Password (leave blank to keep unchanged)' : 'Initial Password'}
+                </label>
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={editWorker ? '••••••••' : 'Enter strong password'}
+                  required={!editWorker}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-paper)', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '2px' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Permission Matrix
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', fontSize: '0.85rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canViewOrders}
+                      onChange={(e) => setForm({ ...form, canViewOrders: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>📦 View Orders</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canPickPack}
+                      onChange={(e) => setForm({ ...form, canPickPack: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>🛠️ Pick &amp; Pack Orders</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canDispatch}
+                      onChange={(e) => setForm({ ...form, canDispatch: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>🚚 Mark Dispatched</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canUpload}
+                      onChange={(e) => setForm({ ...form, canUpload: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>📑 Upload Excel</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canExport}
+                      onChange={(e) => setForm({ ...form, canExport: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>📥 Export Manifests</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.canViewLogs}
+                      onChange={(e) => setForm({ ...form, canViewLogs: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>📜 View System Logs</span>
+                  </label>
+                </div>
+              </div>
+
+              {editWorker && (
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    <span>Account Active (Uncheck to temporarily suspend terminal access)</span>
+                  </label>
+                </div>
+              )}
+
+              {msg && (
+                <div style={{
+                  padding: '0.75rem', borderRadius: '2px', fontWeight: 600,
+                  background: isError ? 'rgba(178,74,53,0.1)' : 'rgba(58,122,81,0.1)',
+                  border: `1px solid ${isError ? 'var(--accent-rust)' : 'var(--accent-green)'}`,
+                  color: isError ? 'var(--accent-rust)' : 'var(--accent-green)'
+                }}>
+                  {msg}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <button type="submit" style={{ flex: 1 }}>{editWorker ? 'SAVE PERMISSIONS' : 'CREATE WORKER'}</button>
+                <button type="button" className="secondary" onClick={() => setModalOpen(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// Live Worker Activity Monitoring Tab
+// ─────────────────────────────────────────
+function LiveActivityTab() {
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+
+  const fetchActivity = async () => {
+    try {
+      const res = await fetch('/api/activity');
+      const data = await res.json();
+      if (res.ok) {
+        setActivities(data.activities || []);
+        setLastRefreshed(new Date());
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/activity');
+        const data = await res.json();
+        if (!ignore && res.ok) {
+          setActivities(data.activities || []);
+          setLastRefreshed(new Date());
+        }
+      } catch {
+        if (!ignore) setActivities([]);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    }
+    load();
+
+    // Auto-polling every 15 seconds
+    const interval = setInterval(() => {
+      fetchActivity();
+    }, 15000);
+
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const onlineCount = activities.filter(a => a.isOnline).length;
+  const totalOpsToday = activities.reduce((acc, a) => acc + (a.todayOperationsCount || 0), 0);
+
+  return (
+    <div>
+      {/* Activity KPI Cards */}
+      <div className="grid-3" style={{ marginBottom: '1.75rem' }}>
+        <div className="stat-card">
+          <div className="stat-label">Total Assigned Workers</div>
+          <div className="stat-value">{activities.length}</div>
+          <div className="stat-meta">Managed by your admin account</div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '4px solid #2ecc71' }}>
+          <div className="stat-label">Active / Online Right Now</div>
+          <div className="stat-value" style={{ color: '#2ecc71' }}>
+            {onlineCount}
+          </div>
+          <div className="stat-meta">Pinging live heartbeat</div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '4px solid var(--accent-blue)' }}>
+          <div className="stat-label">Total Operations Today</div>
+          <div className="stat-value" style={{ color: 'var(--accent-blue)' }}>
+            {totalOpsToday}
+          </div>
+          <div className="stat-meta">Picks, packs, QC, &amp; dispatches</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Live Warehouse Floor Feed</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+            Real-time feed updates automatically every 15 seconds. (Last sync: {lastRefreshed.toLocaleTimeString()})
+          </p>
+        </div>
+        <button type="button" className="secondary" onClick={fetchActivity} style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}>
+          🔄 Refresh Stream
+        </button>
+      </div>
+
+      {/* Worker Cards Grid */}
+      <div className="grid-2">
+        {loading && (
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+            Connecting to live telemetry feed...
+          </div>
+        )}
+        {!loading && activities.map((w) => (
+          <div key={w.id} className="worker-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span className={`status-dot ${w.isOnline ? 'online' : 'offline'}`} />
+                  <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>{w.name}</span>
+                </div>
+                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>@{w.username}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{
+                  padding: '0.15rem 0.5rem', borderRadius: '2px', fontSize: '0.75rem', fontWeight: 700,
+                  background: w.isOnline ? 'rgba(46,204,113,0.15)' : 'rgba(0,0,0,0.06)',
+                  color: w.isOnline ? '#27ae60' : 'var(--text-muted)'
+                }}>
+                  {w.isOnline ? '🟢 ONLINE NOW' : '⚪ IDLE / OFFLINE'}
+                </span>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  {w.todayOperationsCount || 0} actions today
+                </div>
+              </div>
+            </div>
+
+            {/* Current Action Banner */}
+            <div style={{
+              background: 'var(--bg-paper)',
+              padding: '0.65rem 0.85rem',
+              border: '1px solid var(--border-color)',
+              borderRadius: '2px',
+              marginBottom: '0.85rem',
+              fontSize: '0.85rem'
+            }}>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                Latest Live Telemetry:
+              </div>
+              <div style={{ fontWeight: 600, color: 'var(--text-main)', marginTop: '0.15rem' }}>
+                {w.lastAction || 'No recent activity recorded'}
+              </div>
+              {w.lastActionAt && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  🕒 {new Date(w.lastActionAt).toLocaleTimeString()} ({new Date(w.lastActionAt).toLocaleDateString()})
+                </div>
+              )}
+            </div>
+
+            {/* Recent 3 Actions mini timeline */}
+            {w.recentEvents && w.recentEvents.length > 0 && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)' }}>
+                  Recent Fulfillments:
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {w.recentEvents.slice(0, 3).map((evt) => (
+                    <div key={evt.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '0.3rem 0.5rem', background: 'var(--bg-paper-lighter)', border: '1px dotted var(--border-color)', borderRadius: '2px' }}>
+                      <span className="mono"><strong>{evt.order?.orderNo || 'Order'}</strong> → {evt.status}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

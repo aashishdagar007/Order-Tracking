@@ -55,22 +55,41 @@ export default function WorkerDashboard() {
   const searchInputRef = useRef(null);
   const videoRef = useRef(null);
 
-  // Auth check on mount
+  // Auth check & heartbeat on mount
   useEffect(() => {
+    let ignore = false;
     async function checkAuth() {
       try {
         const res = await fetch('/api/auth');
         const data = await res.json();
-        if (!data.user) {
-          router.push('/');
-        } else {
-          setCurrentUser(data.user);
+        if (!ignore) {
+          if (!data.user) {
+            router.push('/');
+          } else {
+            setCurrentUser(data.user);
+          }
         }
       } catch {
-        router.push('/');
+        if (!ignore) router.push('/');
       }
     }
     checkAuth();
+
+    // Send heartbeat ping every 45 seconds to keep live activity updated
+    const interval = setInterval(async () => {
+      try {
+        await fetch('/api/auth', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actionText: 'Active on fulfillment terminal' }),
+        });
+      } catch {}
+    }, 45000);
+
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
   }, [router]);
 
   const handleLogout = async () => {

@@ -3,8 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function Login() {
-  const [role, setRole] = useState('WORKER');
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,21 +13,21 @@ export default function Login() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    
-    if (!name.trim()) {
-      setError('Please enter your name');
+
+    if (!username.trim()) {
+      setError('Please enter your username or full name');
       setLoading(false);
       return;
     }
-    
+
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', role, name: name.trim(), password })
+        body: JSON.stringify({ action: 'login', username: username.trim(), password })
       });
       const data = await res.json();
-      
+
       if (res.ok) {
         if (data.role === 'ADMIN') {
           router.push('/admin');
@@ -36,10 +35,10 @@ export default function Login() {
           router.push('/worker');
         }
       } else {
-        setError(data.error || 'Invalid password. Please try again.');
+        setError(data.error || 'Invalid credentials. Please try again.');
       }
     } catch {
-      setError('Connection error. Please try again.');
+      setError('Connection error. Please check your network.');
     }
     setLoading(false);
   };
@@ -62,56 +61,29 @@ export default function Login() {
             marginBottom: '1rem'
           }}>
             <h1 style={{ fontSize: '1.5rem', margin: 0, letterSpacing: '0.05em' }}>
-              SHIPMENT REGISTER
+              WAREHOUSE WMS
             </h1>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            Warehouse Tracking System
+            Internal Fulfillment &amp; Operations Terminal
           </p>
         </div>
 
         <div className="document-container" style={{ margin: 0, padding: '2rem' }}>
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* Role Toggle */}
+            {/* Username */}
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Access Role
+                Username / Name
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                <label style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  padding: '0.75rem',
-                  border: `2px solid ${role === 'WORKER' ? 'var(--accent-blue)' : 'var(--border-color)'}`,
-                  background: role === 'WORKER' ? 'rgba(61,90,128,0.08)' : 'transparent',
-                  cursor: 'pointer', borderRadius: '2px', fontWeight: 600,
-                  transition: 'all 0.15s ease'
-                }}>
-                  <input type="radio" name="role" value="WORKER" checked={role === 'WORKER'} 
-                    onChange={() => setRole('WORKER')} style={{ width: 'auto' }} />
-                  Worker
-                </label>
-                <label style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  padding: '0.75rem',
-                  border: `2px solid ${role === 'ADMIN' ? 'var(--accent-rust)' : 'var(--border-color)'}`,
-                  background: role === 'ADMIN' ? 'rgba(178,74,53,0.08)' : 'transparent',
-                  cursor: 'pointer', borderRadius: '2px', fontWeight: 600,
-                  transition: 'all 0.15s ease'
-                }}>
-                  <input type="radio" name="role" value="ADMIN" checked={role === 'ADMIN'} 
-                    onChange={() => setRole('ADMIN')} style={{ width: 'auto' }} />
-                  Admin
-                </label>
-              </div>
-            </div>
-
-            {/* Name */}
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Your Name
-              </label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your full name" required />
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. admin or worker1"
+                autoComplete="username"
+                required
+              />
             </div>
 
             {/* Password */}
@@ -119,8 +91,14 @@ export default function Login() {
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Password
               </label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter password" required />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                autoComplete="current-password"
+                required
+              />
             </div>
 
             {error && (
@@ -134,9 +112,14 @@ export default function Login() {
             )}
 
             <button type="submit" disabled={loading} style={{ width: '100%', marginTop: '0.5rem', fontSize: '1rem', letterSpacing: '0.05em' }}>
-              {loading ? 'SIGNING IN...' : 'SIGN IN'}
+              {loading ? 'AUTHENTICATING...' : 'ACCESS TERMINAL'}
             </button>
           </form>
+
+          <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px dotted var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+            Default Admin: <span className="mono">admin</span> / <span className="mono">admin123</span><br />
+            Worker accounts are created &amp; managed by Admins.
+          </div>
         </div>
       </div>
     </div>

@@ -1,25 +1,13 @@
-import { cookies } from 'next/headers';
-import { jwtVerify } from 'jose';
 import prisma from '@/lib/prisma';
 import * as xlsx from 'xlsx';
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-production');
-
-async function getUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, secret);
-    return payload;
-  } catch {
-    return null;
-  }
-}
+import { getSessionUser, updateWorkerHeartbeat } from '@/lib/auth';
 
 export async function GET() {
-  const user = await getUser();
-  if (!user || user.role !== 'ADMIN') return new Response('Unauthorized', { status: 401 });
+  const user = await getSessionUser();
+  if (!user) return new Response('Unauthorized', { status: 401 });
+  if (user.role !== 'ADMIN' && user.permissions?.canExport !== true) {
+    return new Response('Forbidden: Export permission required', { status: 403 });
+  }
 
   try {
     const orders = await prisma.order.findMany({
@@ -71,9 +59,12 @@ export async function GET() {
     
     const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
+    await updateWorkerHeartbeat(user.userId, `Exported ${orders.length} orders to Excel manifest`);
+
     // Log event
     await prisma.log.create({
       data: {
+        userId: user.userId,
         name: user.name,
         role: user.role,
         action: 'Export Data',

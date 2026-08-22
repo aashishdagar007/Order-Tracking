@@ -1,25 +1,13 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { jwtVerify } from 'jose';
 import prisma from '@/lib/prisma';
-
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'super-secret-key-change-in-production');
-
-async function getUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, secret);
-    return payload;
-  } catch {
-    return null;
-  }
-}
+import { getSessionUser } from '@/lib/auth';
 
 export async function GET(request) {
-  const user = await getUser();
-  if (!user || user.role !== 'ADMIN') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.role !== 'ADMIN' && user.permissions?.canViewLogs !== true) {
+    return NextResponse.json({ error: 'Forbidden: Log view permission required' }, { status: 403 });
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -30,7 +18,7 @@ export async function GET(request) {
     const logs = await prisma.log.findMany({
       where,
       orderBy: { timestamp: 'desc' },
-      take: 200 // Limit for performance
+      take: 200
     });
 
     return NextResponse.json({ logs });
