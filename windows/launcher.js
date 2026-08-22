@@ -2,15 +2,33 @@ const { spawn, exec } = require('child_process');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const PORT = process.env.PORT || 3000;
 const APP_URL = `http://localhost:${PORT}`;
 const APP_DIR = path.resolve(__dirname, '..');
 
+// Find local Wi-Fi / Ethernet IP
+function getLocalIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+const localIp = getLocalIp();
+
 console.log('====================================================');
 console.log('🏭 WAREHOUSE MANAGEMENT SYSTEM - WINDOWS LAUNCHER');
 console.log('====================================================');
-console.log(`Starting background server on port ${PORT}...`);
+console.log(`Local Terminal URL:    http://localhost:${PORT}`);
+console.log(`Android Scanner IP:    http://${localIp}:${PORT}`);
+console.log('====================================================');
 
 // Ensure DB directory exists
 const prismaDir = path.join(APP_DIR, 'prisma');
@@ -32,14 +50,13 @@ const env = {
 let serverProcess = null;
 
 if (fs.existsSync(nextCli)) {
-  serverProcess = spawn(nodeExe, [nextCli, 'start', '-p', String(PORT)], {
+  serverProcess = spawn(nodeExe, [nextCli, 'start', '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     env,
     stdio: 'inherit'
   });
 } else {
-  console.log('Running direct next start in app directory...');
-  serverProcess = spawn('npx', ['next', 'start', '-p', String(PORT)], {
+  serverProcess = spawn('npx', ['next', 'start', '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     env,
     shell: true,
@@ -55,8 +72,9 @@ function checkServerReady(retries = 30) {
 
   http.get(APP_URL, (res) => {
     if (res.statusCode >= 200 && res.statusCode < 500) {
-      console.log(`✅ Warehouse WMS is live at ${APP_URL}`);
-      console.log('Opening your default browser...');
+      console.log(`\n✅ Warehouse WMS is live!`);
+      console.log(`  📱 On Android APK: Enter  http://${localIp}:${PORT}`);
+      console.log(`  💻 On this PC:    Opening ${APP_URL} in your browser...\n`);
       exec(`start ${APP_URL}`);
     } else {
       setTimeout(() => checkServerReady(retries - 1), 1000);
