@@ -1,0 +1,38 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Config {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model Order {
+  id         String   @id @default(cuid())
+  orderNo    String   @unique
+  invoiceNo  String?
+  lrNo       String?
+  sent       Boolean  @default(false)
+  notes      String?
+  extra      String?  // JSON string
+  enteredBy  String?
+  enteredAt  DateTime @default(now())
+  updatedBy  String?
+  updatedAt  DateTime @updatedAt
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  name      String
+  role      String
+  action    String
+  detail    String?
+}
