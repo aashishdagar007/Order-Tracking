@@ -9,13 +9,16 @@ console.log('====================================================');
 console.log('📦 PREPARING WINDOWS DISTRIBUTION FOR INNO SETUP 7');
 console.log('====================================================');
 
-// 1. Build Next.js
-console.log('Step 1: Building production Next.js assets...');
-execSync('npm run build', { cwd: ROOT_DIR, stdio: 'inherit' });
+// 1. Ensure Next.js build is generated
+const nextBuildDir = path.join(ROOT_DIR, '.next');
+if (!fs.existsSync(nextBuildDir)) {
+  console.log('Building production Next.js assets...');
+  execSync('npm run build', { cwd: ROOT_DIR, stdio: 'inherit' });
+}
 
 // 2. Clean & recreate _dist
 if (fs.existsSync(DIST_DIR)) {
-  console.log('Step 2: Cleaning previous _dist directory...');
+  console.log('Cleaning previous _dist directory...');
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
 }
 fs.mkdirSync(DIST_DIR, { recursive: true });
@@ -28,27 +31,20 @@ const itemsToCopy = [
   'lib',
   'app',
   'windows',
+  'node_modules',
   'package.json',
   'next.config.ts'
 ];
 
-console.log('Step 3: Staging application files...');
+console.log('Staging application files into _dist...');
 for (const item of itemsToCopy) {
   const src = path.join(ROOT_DIR, item);
   const dest = path.join(DIST_DIR, item);
   if (fs.existsSync(src)) {
     console.log(`  Copying ${item}...`);
-    fs.cpSync(src, dest, { recursive: true });
+    fs.cpSync(src, dest, { recursive: true, errorOnExist: false });
   }
 }
-
-// 4. Install production dependencies inside _dist
-console.log('Step 4: Installing production dependencies in _dist...');
-execSync('npm install --omit=dev --ignore-scripts', { cwd: DIST_DIR, stdio: 'inherit' });
-
-// 5. Generate Prisma Client in _dist
-console.log('Step 5: Generating Prisma client for distribution...');
-execSync('npx prisma generate', { cwd: DIST_DIR, stdio: 'inherit' });
 
 console.log('\n====================================================');
 console.log('✅ Staging complete! Location:', DIST_DIR);
