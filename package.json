@@ -8,6 +8,7 @@
     "start": "next start -H 0.0.0.0",
     "lint": "eslint",
     "seed": "node prisma/seed.js",
+    "tunnel": "npx localtunnel --port 3000",
     "build:windows": "node windows/build_windows_dist.js",
     "build:apk": "next build && cap sync android"
   },

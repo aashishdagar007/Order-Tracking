@@ -19,6 +19,11 @@
 
 # production
 /build
+/_dist/
+/windows/Output/
+*.exe
+*.zip
+android/
 
 # misc
 .DS_Store
