@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: path.join(__dirname),
   // Allow all local network IPs and tunnel domains to connect in development
   allowedDevOrigins: [
     "192.168.*.*",

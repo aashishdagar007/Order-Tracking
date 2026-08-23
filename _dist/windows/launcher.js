@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 const APP_URL = `http://localhost:${PORT}`;
 const APP_DIR = path.resolve(__dirname, '..');
 
-// Find local Wi-Fi / Ethernet IP
+// Find local Wi-Fi / Ethernet IPv4
 function getLocalIp() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -58,27 +58,31 @@ if (!fs.existsSync(prismaDir)) {
   fs.mkdirSync(prismaDir, { recursive: true });
 }
 
-// Determine node executable
+// Determine node executable and Next.js start command
 const nodeExe = process.execPath;
 const nextCli = path.join(APP_DIR, 'node_modules', 'next', 'dist', 'bin', 'next');
+const hasProductionBuild = fs.existsSync(path.join(APP_DIR, '.next'));
 
 const env = {
   ...process.env,
-  NODE_ENV: 'production',
+  NODE_ENV: hasProductionBuild ? 'production' : 'development',
   PORT: String(PORT),
   JWT_SECRET: process.env.JWT_SECRET || 'warehouse-wms-production-key-2026'
 };
 
+const nextCommand = hasProductionBuild ? 'start' : 'dev';
+console.log(`Launching server in ${env.NODE_ENV} mode...`);
+
 let serverProcess = null;
 
 if (fs.existsSync(nextCli)) {
-  serverProcess = spawn(nodeExe, [nextCli, 'start', '-H', '0.0.0.0', '-p', String(PORT)], {
+  serverProcess = spawn(nodeExe, [nextCli, nextCommand, '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     env,
     stdio: 'inherit'
   });
 } else {
-  serverProcess = spawn('npx', ['next', 'start', '-H', '0.0.0.0', '-p', String(PORT)], {
+  serverProcess = spawn('npx', ['next', nextCommand, '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     env,
     shell: true,
@@ -86,36 +90,67 @@ if (fs.existsSync(nextCli)) {
   });
 }
 
-function checkServerReady(retries = 30) {
+serverProcess.on('error', (err) => {
+  console.error('❌ Failed to start server process:', err);
+});
+
+serverProcess.on('exit', (code, signal) => {
+  console.log(`\n⚠ Server process exited with code ${code}, signal: ${signal}`);
+  process.exit(code || 0);
+});
+
+// Check when server is ready and open browser
+let browserOpened = false;
+
+function checkServerReady(retries = 40) {
   if (retries <= 0) {
-    console.error('❌ Server startup timed out.');
+    console.warn('⚠ Server startup check reached limit, but process is still running.');
     return;
   }
 
   http.get(APP_URL, (res) => {
-    if (res.statusCode >= 200 && res.statusCode < 500) {
-      console.log(`\n✅ Warehouse WMS is live!`);
-      console.log(`  📱 On Android APK: Enter  http://${localIp}:${PORT}`);
-      console.log(`  💻 On this PC:    Opening ${APP_URL} in your browser...\n`);
+    if (res.statusCode >= 200 && res.statusCode < 500 && !browserOpened) {
+      browserOpened = true;
+      console.log(`\n====================================================`);
+      console.log(`✅ Warehouse Management Server is LIVE and RUNNING!`);
+      console.log(`====================================================`);
+      console.log(`📱 Android APK URL: http://${localIp}:${PORT}`);
+      console.log(`💻 Local PC URL:    ${APP_URL}`);
+      console.log(`\n👉 Leave this window OPEN while using Warehouse Management.`);
+      console.log(`👉 Press Ctrl+C at any time to stop the server.`);
+      console.log(`====================================================\n`);
       exec(`start ${APP_URL}`);
-    } else {
+    } else if (!browserOpened) {
       setTimeout(() => checkServerReady(retries - 1), 1000);
     }
   }).on('error', () => {
-    setTimeout(() => checkServerReady(retries - 1), 1000);
+    if (!browserOpened) {
+      setTimeout(() => checkServerReady(retries - 1), 1000);
+    }
   });
 }
 
 checkServerReady();
 
+// Keep process permanently alive with a heartbeat timer
+const keepAliveTimer = setInterval(() => {
+  // heartbeat keeping Node.js event loop active
+}, 60000);
+
 function cleanup() {
-  console.log('Stopping background WMS server...');
+  console.log('\n🛑 Stopping Warehouse Management server...');
+  clearInterval(keepAliveTimer);
   if (serverProcess) {
-    serverProcess.kill('SIGINT');
+    try {
+      serverProcess.kill('SIGINT');
+      if (serverProcess.pid) {
+        execSync(`taskkill /F /T /PID ${serverProcess.pid} 2>nul`, { stdio: 'ignore' });
+      }
+    } catch (e) {}
   }
   process.exit(0);
 }
 
 process.on('SIGINT', cleanup);
 process.on('SIGTERM', cleanup);
-process.on('exit', cleanup);
+process.on('SIGBREAK', cleanup);
