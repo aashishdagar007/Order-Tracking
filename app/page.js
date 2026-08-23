@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function Login() {
@@ -7,7 +7,31 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingExisting, setCheckingExisting] = useState(true);
   const router = useRouter();
+
+  // Auto-check existing session on load
+  useEffect(() => {
+    async function checkExisting() {
+      try {
+        const token = localStorage.getItem('wms_auth_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch('/api/auth', { headers });
+        const data = await res.json();
+        if (data.user) {
+          if (data.user.role === 'ADMIN') {
+            router.push('/admin');
+            return;
+          } else {
+            router.push('/worker');
+            return;
+          }
+        }
+      } catch (e) {}
+      setCheckingExisting(false);
+    }
+    checkExisting();
+  }, [router]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -29,6 +53,13 @@ export default function Login() {
       const data = await res.json();
 
       if (res.ok) {
+        if (data.token) {
+          localStorage.setItem('wms_auth_token', data.token);
+        }
+        if (data.user) {
+          localStorage.setItem('wms_user', JSON.stringify(data.user));
+        }
+
         if (data.role === 'ADMIN') {
           router.push('/admin');
         } else {
@@ -42,6 +73,17 @@ export default function Login() {
     }
     setLoading(false);
   };
+
+  if (checkingExisting) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#f8fafc', fontFamily: 'var(--font-sans)', color: '#64748b' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>📦</div>
+          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Opening Warehouse Management...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{

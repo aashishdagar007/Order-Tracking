@@ -70,7 +70,9 @@ export default function WorkerDashboard() {
     let ignore = false;
     async function checkAuth() {
       try {
-        const res = await fetch('/api/auth');
+        const token = localStorage.getItem('wms_auth_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch('/api/auth', { headers });
         const data = await res.json();
         if (!ignore) {
           if (!data.user) {
@@ -88,9 +90,10 @@ export default function WorkerDashboard() {
     // Send heartbeat ping every 45 seconds to keep live activity updated
     const interval = setInterval(async () => {
       try {
+        const token = localStorage.getItem('wms_auth_token');
         await fetch('/api/auth', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
           body: JSON.stringify({ actionText: 'Active on fulfillment terminal' }),
         });
       } catch {}
@@ -104,14 +107,18 @@ export default function WorkerDashboard() {
 
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth', { method: 'GET' });
+      const token = localStorage.getItem('wms_auth_token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch('/api/auth', { method: 'GET', headers });
       const data = await res.json();
       await fetch('/api/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         body: JSON.stringify({ action: 'logout', name: data.user?.name, role: data.user?.role })
       });
     } catch {}
+    localStorage.removeItem('wms_auth_token');
+    localStorage.removeItem('wms_user');
     router.push('/');
   };
 

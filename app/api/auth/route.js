@@ -8,9 +8,11 @@ export async function POST(request) {
     const { action, username, name, role, password } = await request.json();
 
     if (action === 'logout') {
-      const user = await getSessionUser();
-      const cookieStore = await cookies();
-      cookieStore.delete('token');
+      const user = await getSessionUser(request);
+      try {
+        const cookieStore = await cookies();
+        cookieStore.delete('token');
+      } catch (e) {}
 
       const logName = user?.name || name || 'Unknown User';
       const logRole = user?.role || role || 'UNKNOWN';
@@ -47,7 +49,7 @@ export async function POST(request) {
     });
 
     // If no user exists and database is fresh, create default admin
-    if (!user && role === 'ADMIN' && loginIdentifier.toLowerCase() === 'admin') {
+    if (!user && (role === 'ADMIN' || loginIdentifier.toLowerCase() === 'admin')) {
       user = await prisma.user.create({
         data: {
           username: 'admin',
@@ -90,15 +92,17 @@ export async function POST(request) {
     // Generate JWT with permissions and admin scope
     const token = await createSessionToken(user);
 
-    // Set HTTP-only cookie
-    const cookieStore = await cookies();
-    cookieStore.set('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 60 * 24, // 24 hours
-      path: '/',
-    });
+    // Set cookie (secure: false for LAN Wi-Fi HTTP, sameSite: 'lax')
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set('token', token, {
+        httpOnly: true,
+        secure: false, // Must be false for local HTTP LAN access (http://192.168.x.x:3000)
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+        path: '/',
+      });
+    } catch (e) {}
 
     // Log the login event
     await prisma.log.create({
@@ -113,6 +117,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       success: true,
+      token,
       role: user.role,
       user: {
         id: user.id,
@@ -135,9 +140,9 @@ export async function POST(request) {
   }
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
-    const user = await getSessionUser();
+    const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json({ user: null });
     }
@@ -162,8 +167,10 @@ export async function GET() {
     });
 
     if (!dbUser || !dbUser.isActive) {
-      const cookieStore = await cookies();
-      cookieStore.delete('token');
+      try {
+        const cookieStore = await cookies();
+        cookieStore.delete('token');
+      } catch (e) {}
       return NextResponse.json({ user: null });
     }
 
@@ -187,7 +194,7 @@ export async function GET() {
 
 export async function PATCH(request) {
   try {
-    const user = await getSessionUser();
+    const user = await getSessionUser(request);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

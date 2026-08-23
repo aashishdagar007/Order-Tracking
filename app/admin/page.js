@@ -21,7 +21,9 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function checkAuth() {
       try {
-        const res = await fetch('/api/auth');
+        const token = localStorage.getItem('wms_auth_token');
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch('/api/auth', { headers });
         const data = await res.json();
         if (!data.user || data.user.role !== 'ADMIN') {
           router.push('/');
@@ -37,14 +39,18 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth', { method: 'GET' });
+      const token = localStorage.getItem('wms_auth_token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch('/api/auth', { method: 'GET', headers });
       const data = await res.json();
       await fetch('/api/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
         body: JSON.stringify({ action: 'logout', name: data.user?.name, role: data.user?.role })
       });
     } catch {}
+    localStorage.removeItem('wms_auth_token');
+    localStorage.removeItem('wms_user');
     router.push('/');
   };
 
