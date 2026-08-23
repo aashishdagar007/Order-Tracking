@@ -1,0 +1,94 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Config {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  name         String
+  passwordHash String
+  role         String    @default("WORKER") // ADMIN | WORKER
+  adminId      String?   // For workers: which admin they report to
+  admin        User?     @relation("AdminWorkers", fields: [adminId], references: [id], onDelete: Cascade)
+  workers      User[]    @relation("AdminWorkers")
+
+  // Granular access permissions
+  canViewOrders Boolean  @default(true)
+  canPickPack   Boolean  @default(true)
+  canDispatch   Boolean  @default(false)
+  canUpload     Boolean  @default(false)
+  canExport     Boolean  @default(false)
+  canViewLogs   Boolean  @default(false)
+
+  // Real-time activity tracking
+  isActive      Boolean  @default(true)
+  lastSeen      DateTime?
+  lastAction    String?
+  lastActionAt  DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  logs          Log[]
+}
+
+model Order {
+  id           String        @id @default(cuid())
+  orderNo      String        @unique
+  invoiceNo    String?
+  lrNo         String?
+  sent         Boolean       @default(false)
+  status       String        @default("RECEIVED") // RECEIVED, PICKING, PACKING, QUALITY_CHECK, STAGED, DISPATCHED, ON_HOLD
+  priority     String        @default("STANDARD") // STANDARD, EXPRESS, URGENT
+  zone         String?       // Warehouse Aisle / Rack / Bin e.g. "Zone A - R02 - B04"
+  dockBay      String?       // Outbound Staging Bay / Dock Door e.g. "Bay 3"
+  transporter  String?       // Carrier / Courier name e.g. "BlueDart", "Delhivery"
+  vehicleNo    String?       // Transport truck plate number
+  boxCount     Int           @default(1)
+  weightKg     Float?
+  notes        String?
+  extra        String?       // JSON string for raw Excel attributes
+  enteredBy    String?
+  enteredAt    DateTime      @default(now())
+  pickedBy     String?
+  pickedAt     DateTime?
+  packedBy     String?
+  packedAt     DateTime?
+  dispatchedAt DateTime?
+  updatedBy    String?
+  updatedAt    DateTime      @updatedAt
+  events       OrderEvent[]
+}
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  actorName String
+  actorRole String
+  note      String?
+  timestamp DateTime @default(now())
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  role      String
+  action    String
+  detail    String?
+}
