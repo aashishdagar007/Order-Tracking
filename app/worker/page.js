@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { playSuccessBeep, playWarningBeep, playErrorBuzzer, playDispatchChime } from '@/lib/audio';
+import { printThermalLabel, printDeliveryChallan } from '@/lib/thermalLabel';
 
 const WORKFLOW_STEPS = [
   { key: 'RECEIVED', label: 'Received' },
@@ -21,6 +23,14 @@ export default function WorkerDashboard() {
   const [saveMsg, setSaveMsg] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+
+  // Audio & Wave Picking Mode state
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [workerMode, setWorkerMode] = useState('single'); // 'single' | 'wave'
+  const [waveZone, setWaveZone] = useState('Zone A');
+  const [waveOrders, setWaveOrders] = useState([]);
+  const [waveSelectedIds, setWaveSelectedIds] = useState([]);
+  const [waveLoading, setWaveLoading] = useState(false);
 
   // New Order Form state (if NOT ON FILE)
   const [newForm, setNewForm] = useState({
@@ -117,7 +127,15 @@ export default function WorkerDashboard() {
       const data = await res.json();
       if (res.ok && data.order) {
         setOrder(data.order);
+        if (soundEnabled) {
+          if (data.order.priority === 'URGENT' || data.order.priority === 'EXPRESS') {
+            playWarningBeep();
+          } else {
+            playSuccessBeep();
+          }
+        }
       } else {
+        if (soundEnabled) playErrorBuzzer();
         setNewForm({
           invoiceNo: '',
           lrNo: '',
@@ -134,10 +152,84 @@ export default function WorkerDashboard() {
       }
       setIsSearched(true);
     } catch {
+      if (soundEnabled) playErrorBuzzer();
       setSaveMsg('Error loading order data. Please try again.');
     }
     setLoading(false);
-  }, [search]);
+  }, [search, soundEnabled]);
+
+  const fetchWaveOrders = useCallback(async (zone) => {
+    setWaveLoading(true);
+    try {
+      const z = zone !== undefined ? zone : waveZone;
+      const res = await fetch('/api/orders?limit=100');
+      const data = await res.json();
+      if (res.ok && data.orders) {
+        const activePending = data.orders.filter(o => o.status !== 'DISPATCHED');
+        const filtered = z === 'ALL'
+          ? activePending
+          : activePending.filter(o => o.zone && o.zone.toLowerCase().includes(z.toLowerCase()));
+        setWaveOrders(filtered);
+        setWaveSelectedIds([]);
+      }
+    } catch {
+      setWaveOrders([]);
+    } finally {
+      setWaveLoading(false);
+    }
+  }, [waveZone]);
+
+  useEffect(() => {
+    let ignore = false;
+    if (workerMode === 'wave') {
+      fetch('/api/orders?limit=100')
+        .then(r => r.json())
+        .then(data => {
+          if (!ignore && data?.orders) {
+            const activePending = data.orders.filter(o => o.status !== 'DISPATCHED');
+            const filtered = waveZone === 'ALL'
+              ? activePending
+              : activePending.filter(o => o.zone && o.zone.toLowerCase().includes(waveZone.toLowerCase()));
+            setWaveOrders(filtered);
+            setWaveSelectedIds([]);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => { ignore = true; };
+  }, [workerMode, waveZone]);
+
+  const handleWaveBatchAdvance = async (targetStatus) => {
+    if (waveSelectedIds.length === 0) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/orders/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderIds: waveSelectedIds,
+          status: targetStatus,
+          note: `Wave batch advanced to ${targetStatus}`
+        })
+      });
+      if (res.ok) {
+        if (soundEnabled) {
+          if (targetStatus === 'DISPATCHED') playDispatchChime();
+          else playSuccessBeep();
+        }
+        setSaveMsg(`✓ Successfully advanced ${waveSelectedIds.length} orders to ${targetStatus}`);
+        fetchWaveOrders(waveZone);
+      } else {
+        if (soundEnabled) playErrorBuzzer();
+        setSaveMsg('Failed to process batch wave');
+      }
+    } catch {
+      if (soundEnabled) playErrorBuzzer();
+      setSaveMsg('Network error on batch wave');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -263,6 +355,14 @@ export default function WorkerDashboard() {
           <span>Warehouse Fulfillment Hub</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            type="button"
+            className="sound-badge"
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            style={{ fontSize: '0.82rem', padding: '0.35rem 0.75rem' }}
+          >
+            {soundEnabled ? '🔊 Scanner Audio ON' : '🔇 Audio Muted'}
+          </button>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
             Operator: <strong>{currentUser?.name || 'Worker'}</strong>
           </span>
@@ -273,39 +373,217 @@ export default function WorkerDashboard() {
       </nav>
 
       <div className="document-container">
-        {/* Header & Quick Scan Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div>
-            <h2>Order Fulfillment Station</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Scan or enter order barcode to pick, pack, inspect, and stage shipments.
-            </p>
+        {/* Mode Switcher */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '2px', overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setWorkerMode('single')}
+              style={{
+                padding: '0.5rem 1.1rem',
+                fontSize: '0.85rem',
+                background: workerMode === 'single' ? 'var(--text-main)' : 'transparent',
+                color: workerMode === 'single' ? 'var(--bg-paper-lighter)' : 'var(--text-main)',
+                border: 'none',
+                borderRadius: 0
+              }}
+            >
+              ⚡ Single Order Scan
+            </button>
+            <button
+              type="button"
+              onClick={() => setWorkerMode('wave')}
+              style={{
+                padding: '0.5rem 1.1rem',
+                fontSize: '0.85rem',
+                background: workerMode === 'wave' ? 'var(--text-main)' : 'transparent',
+                color: workerMode === 'wave' ? 'var(--bg-paper-lighter)' : 'var(--text-main)',
+                border: 'none',
+                borderRadius: 0
+              }}
+            >
+              🌊 Wave Aisle Picking ({waveOrders.length})
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn-accent"
-            onClick={() => setScannerOpen(true)}
-            style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}
-          >
-            <span>📷</span> SCAN BARCODE / QR
-          </button>
+
+          {workerMode === 'single' && (
+            <button
+              type="button"
+              className="btn-accent"
+              onClick={() => setScannerOpen(true)}
+              style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}
+            >
+              <span>📷</span> SCAN BARCODE / QR
+            </button>
+          )}
         </div>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '0.75rem' }}>
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Scan / Type Order ID (e.g. ORD-1002, 860300...)"
-            style={{ fontSize: '1.15rem', flex: 1, padding: '0.85rem 1rem' }}
-            autoFocus
-          />
-          <button type="submit" disabled={loading} style={{ whiteSpace: 'nowrap', minWidth: '130px', fontSize: '1rem' }}>
-            {loading ? 'LOOKUP...' : 'FIND ORDER'}
-          </button>
-        </form>
+        {/* ───────────────────────────────────────── */}
+        {/* MODE 1: SINGLE SCAN FULFILLMENT           */}
+        {/* ───────────────────────────────────────── */}
+        {workerMode === 'single' && (
+          <>
+            {/* Search Bar */}
+            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '0.75rem' }}>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Scan / Type Order ID (e.g. ORD-1002, 860300...)"
+                style={{ fontSize: '1.15rem', flex: 1, padding: '0.85rem 1rem' }}
+                autoFocus
+              />
+              <button type="submit" disabled={loading} style={{ whiteSpace: 'nowrap', minWidth: '130px', fontSize: '1rem' }}>
+                {loading ? 'LOOKUP...' : 'FIND ORDER'}
+              </button>
+            </form>
+          </>
+        )}
+
+        {/* ───────────────────────────────────────── */}
+        {/* MODE 2: WAVE / BATCH AISLE PICKING        */}
+        {/* ───────────────────────────────────────── */}
+        {workerMode === 'wave' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <label style={{ fontWeight: 600, fontSize: '0.85rem' }}>Select Aisle / Zone:</label>
+                <select
+                  value={waveZone}
+                  onChange={(e) => {
+                    setWaveZone(e.target.value);
+                    fetchWaveOrders(e.target.value);
+                  }}
+                  style={{ width: 'auto', minWidth: '150px' }}
+                >
+                  <option value="Zone A">Zone A (Fast Moving)</option>
+                  <option value="Zone B">Zone B (Bulk Pallets)</option>
+                  <option value="Zone C">Zone C (Fragile/Secure)</option>
+                  <option value="Zone D">Zone D (Overflow)</option>
+                  <option value="ALL">All Zones</option>
+                </select>
+              </div>
+
+              {waveSelectedIds.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn-accent"
+                    onClick={() => handleWaveBatchAdvance('PICKING')}
+                    disabled={actionLoading}
+                    style={{ fontSize: '0.85rem', padding: '0.45rem 0.9rem' }}
+                  >
+                    ▶ Start Picking ({waveSelectedIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-accent"
+                    onClick={() => handleWaveBatchAdvance('PACKING')}
+                    disabled={actionLoading}
+                    style={{ fontSize: '0.85rem', padding: '0.45rem 0.9rem' }}
+                  >
+                    📦 Mark Packed ({waveSelectedIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-green"
+                    onClick={() => handleWaveBatchAdvance('STAGED')}
+                    disabled={actionLoading}
+                    style={{ fontSize: '0.85rem', padding: '0.45rem 0.9rem' }}
+                  >
+                    ⚓ Stage at Dock ({waveSelectedIds.length})
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Wave Checklist Table */}
+            <div className="ledger-table-container">
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={waveOrders.length > 0 && waveSelectedIds.length === waveOrders.length}
+                        onChange={() => {
+                          if (waveSelectedIds.length === waveOrders.length) {
+                            setWaveSelectedIds([]);
+                          } else {
+                            setWaveSelectedIds(waveOrders.map(o => o.id));
+                          }
+                        }}
+                        style={{ width: 'auto' }}
+                      />
+                    </th>
+                    <th>Order No</th>
+                    <th>Priority</th>
+                    <th>Stage</th>
+                    <th>Zone / Rack</th>
+                    <th>Boxes</th>
+                    <th>Transporter</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waveLoading && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        Loading wave picklist for {waveZone}...
+                      </td>
+                    </tr>
+                  )}
+                  {!waveLoading && waveOrders.map((ord) => (
+                    <tr key={ord.id} style={{ background: waveSelectedIds.includes(ord.id) ? 'rgba(61,90,128,0.06)' : undefined }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={waveSelectedIds.includes(ord.id)}
+                          onChange={() => {
+                            if (waveSelectedIds.includes(ord.id)) {
+                              setWaveSelectedIds(waveSelectedIds.filter(id => id !== ord.id));
+                            } else {
+                              setWaveSelectedIds([...waveSelectedIds, ord.id]);
+                            }
+                          }}
+                          style={{ width: 'auto' }}
+                        />
+                      </td>
+                      <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{ord.orderNo}</td>
+                      <td><span className={`priority-tag ${ord.priority}`}>{ord.priority}</span></td>
+                      <td><span className={`status-badge ${ord.status}`}>{ord.status}</span></td>
+                      <td>📍 {ord.zone || 'Zone A'}</td>
+                      <td>{ord.boxCount} Pkg</td>
+                      <td>{ord.transporter || '—'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => {
+                            setWorkerMode('single');
+                            setSearch(ord.orderNo);
+                            executeSearch(ord.orderNo);
+                          }}
+                          style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                        >
+                          Open Single View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!waveLoading && waveOrders.length === 0 && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                        No pending orders in {waveZone}. All aisle orders picked &amp; dispatched!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Notifications */}
         {saveMsg && (
@@ -321,7 +599,7 @@ export default function WorkerDashboard() {
         {/* ───────────────────────────────────────── */}
         {/* FOUND: Order details & Guided Fulfillment */}
         {/* ───────────────────────────────────────── */}
-        {isSearched && order && (
+        {workerMode === 'single' && isSearched && order && (
           <div style={{ marginTop: '2.5rem', position: 'relative' }}>
             {/* Status Stamp */}
             <div className={`ink-stamp ${order.status.toLowerCase().replace('_', '-')}`}>
@@ -373,14 +651,33 @@ export default function WorkerDashboard() {
                 </div>
               )}
 
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setPrintModalOpen(true)}
-                style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
-              >
-                🖨️ Print Packing Slip
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => printThermalLabel(order)}
+                  style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
+                  title="Print 4x6 inch thermal barcode label"
+                >
+                  🏷️ 4x6-Inch Label
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setPrintModalOpen(true)}
+                  style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
+                >
+                  🖨️ Packing Slip
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => printDeliveryChallan(order)}
+                  style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
+                >
+                  📄 Challan
+                </button>
+              </div>
             </div>
 
             {/* Workflow Stage Progression Pipeline */}

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { printThermalLabel, printDeliveryChallan } from '@/lib/thermalLabel';
 
 const STATUS_COLUMNS = [
   { key: 'RECEIVED', label: 'Received / Queued', color: '#5a5a5a' },
@@ -68,6 +69,8 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap' }}>
             {[
               { key: 'orders', label: 'Operations & Kanban' },
+              { key: 'analytics', label: 'Analytics & KPIs 📊' },
+              { key: 'zonemap', label: 'Warehouse Zone Map 🗺️' },
               { key: 'workers', label: 'Workers & Permissions' },
               { key: 'activity', label: 'Live Worker Activity 🟢' },
               { key: 'upload', label: 'Upload Excel' },
@@ -114,6 +117,8 @@ export default function AdminDashboard() {
       {/* Main Content Area */}
       <div style={{ padding: '1.5rem 2rem' }}>
         {tab === 'orders' && <OperationsTab />}
+        {tab === 'analytics' && <AnalyticsTab />}
+        {tab === 'zonemap' && <ZoneMapTab />}
         {tab === 'workers' && <WorkersTab />}
         {tab === 'activity' && <LiveActivityTab />}
         {tab === 'upload' && <UploadTab />}
@@ -644,8 +649,24 @@ function OperationsTab() {
                 <textarea rows="2" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
               </div>
 
-              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
-                <button type="submit" style={{ flex: 1 }}>SAVE CHANGES</button>
+              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="submit" style={{ flex: 1, minWidth: '140px' }}>SAVE CHANGES</button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => printThermalLabel(editForm)}
+                  title="Print 4x6 inch thermal shipping barcode label"
+                >
+                  🏷️ Print 4x6-Inch Label
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => printDeliveryChallan(editForm)}
+                  title="Print official delivery challan"
+                >
+                  📄 Delivery Challan
+                </button>
                 <button type="button" className="secondary" onClick={() => setEditModalOpen(false)}>Cancel</button>
               </div>
             </form>
@@ -1592,3 +1613,364 @@ function SettingsTab() {
     </div>
   );
 }
+
+// ─────────────────────────────────────────
+// NEW: Analytics & KPIs Dashboard Tab
+// ─────────────────────────────────────────
+function AnalyticsTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchKpis = useCallback(async () => {
+    try {
+      const res = await fetch('/api/analytics/kpis');
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (e) {
+      console.error('Failed to load KPIs:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/analytics/kpis');
+        if (res.ok && !ignore) {
+          const json = await res.json();
+          setData(json);
+        }
+      } catch {}
+      if (!ignore) setLoading(false);
+    }
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (loading && !data) {
+    return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Calculating warehouse analytics &amp; cycle times...</div>;
+  }
+
+  const sc = data?.statusCounts || {};
+  const ta = data?.turnaroundAverages || {};
+  const maxHourly = Math.max(...(data?.hourlyThroughput || [1]), 1);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h2>Warehouse Floor KPIs &amp; Productivity</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Real-time fulfillment turnaround metrics, worker leaderboard, and hourly throughput.</p>
+        </div>
+        <button className="secondary" onClick={fetchKpis} style={{ fontSize: '0.85rem' }}>🔄 Refresh Metrics</button>
+      </div>
+
+      {/* Top Level KPIs */}
+      <div className="kpi-grid">
+        <div className="kpi-card" style={{ borderLeftColor: 'var(--accent-blue)' }}>
+          <div className="kpi-title">Total Floor Volume</div>
+          <div className="kpi-val">{sc.TOTAL || 0}</div>
+          <div className="kpi-sub">Total orders in manifest</div>
+        </div>
+
+        <div className="kpi-card" style={{ borderLeftColor: 'var(--accent-green)' }}>
+          <div className="kpi-title">Dispatched Today</div>
+          <div className="kpi-val" style={{ color: 'var(--accent-green)' }}>{data?.dispatchedTodayCount || 0}</div>
+          <div className="kpi-sub">Successfully fulfilled &amp; sent</div>
+        </div>
+
+        <div className="kpi-card" style={{ borderLeftColor: 'var(--accent-purple)' }}>
+          <div className="kpi-title">Avg Picking Duration</div>
+          <div className="kpi-val" style={{ color: 'var(--accent-purple)' }}>{ta.avgPickingMin || 0} <span style={{ fontSize: '1rem' }}>min</span></div>
+          <div className="kpi-sub">Queue to picked turnaround</div>
+        </div>
+
+        <div className="kpi-card" style={{ borderLeftColor: 'var(--accent-amber)' }}>
+          <div className="kpi-title">Avg Total Turnaround</div>
+          <div className="kpi-val" style={{ color: 'var(--accent-amber)' }}>{ta.avgTotalFulfillmentMin || 0} <span style={{ fontSize: '1rem' }}>min</span></div>
+          <div className="kpi-sub">Order entry to outbound dispatch</div>
+        </div>
+      </div>
+
+      {/* Stage Breakdown & Hourly Velocity */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        {/* Stage Turnaround Flow */}
+        <div className="document-container">
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>🔄 Fulfillment Stage Velocity</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.8rem', background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-color)' }}>
+              <span>1. Queue &amp; Received</span>
+              <strong>{sc.RECEIVED || 0} orders waiting</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.8rem', background: 'rgba(109, 89, 122, 0.08)', border: '1px solid var(--accent-purple)' }}>
+              <span>2. Picking Stage (Avg {ta.avgPickingMin || 0}m)</span>
+              <strong style={{ color: 'var(--accent-purple)' }}>{sc.PICKING || 0} active</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.8rem', background: 'rgba(61, 90, 128, 0.08)', border: '1px solid var(--accent-blue)' }}>
+              <span>3. Packing &amp; QC (Avg {ta.avgPackingMin || 0}m)</span>
+              <strong style={{ color: 'var(--accent-blue)' }}>{(sc.PACKING || 0) + (sc.QUALITY_CHECK || 0)} active</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 0.8rem', background: 'rgba(214, 137, 37, 0.08)', border: '1px solid var(--accent-amber)' }}>
+              <span>4. Staged at Dock Bay</span>
+              <strong style={{ color: 'var(--accent-amber)' }}>{sc.STAGED || 0} waiting</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* 24-Hour Velocity Histogram */}
+        <div className="document-container">
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>⚡ Today&apos;s Hourly Fulfillment Velocity</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Distribution of orders picked, packed, and dispatched by hour.</p>
+          <div className="bar-chart-container">
+            {(data?.hourlyThroughput || []).map((count, hour) => {
+              const heightPct = (count / maxHourly) * 100;
+              return (
+                <div
+                  key={hour}
+                  className="bar-col"
+                  style={{ height: `${Math.max(heightPct, 4)}%` }}
+                  title={`${hour}:00 - ${count} operations`}
+                />
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>23:00</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Worker Productivity Leaderboard */}
+      <div className="document-container">
+        <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>🏆 Worker Productivity Leaderboard (Today)</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.25rem' }}>Rankings based on orders fulfilled, items picked, and dispatches handled today.</p>
+
+        <div className="ledger-table-container">
+          <table className="ledger-table">
+            <thead>
+              <tr>
+                <th style={{ width: '60px' }}>Rank</th>
+                <th>Worker Name</th>
+                <th>Status</th>
+                <th>Picked Today</th>
+                <th>Packed Today</th>
+                <th>Dispatched Today</th>
+                <th>Total Operations</th>
+                <th>Last Active</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.leaderboard || []).map((w, idx) => (
+                <tr key={w.username}>
+                  <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                    {idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${idx + 1}`}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{w.name} ({w.username})</td>
+                  <td>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                      fontSize: '0.75rem', fontWeight: 600,
+                      color: w.isActive ? 'var(--accent-green)' : 'var(--text-muted)'
+                    }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: w.isActive ? 'var(--accent-green)' : '#999' }} />
+                      {w.isActive ? 'Active' : 'Offline'}
+                    </span>
+                  </td>
+                  <td style={{ color: 'var(--accent-purple)', fontWeight: 700 }}>{w.pickedToday}</td>
+                  <td style={{ color: 'var(--accent-blue)', fontWeight: 700 }}>{w.packedToday}</td>
+                  <td style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{w.dispatchedToday}</td>
+                  <td style={{ fontWeight: 800, fontSize: '1rem' }}>{w.totalActionsToday}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    {w.lastActionAt ? new Date(w.lastActionAt).toLocaleTimeString() : '—'}
+                  </td>
+                </tr>
+              ))}
+              {(data?.leaderboard || []).length === 0 && (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No worker activity recorded yet today.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────
+// NEW: Warehouse Zone & Location Map Tab
+// ─────────────────────────────────────────
+function ZoneMapTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeZoneModal, setActiveZoneModal] = useState(null);
+
+  const fetchZones = useCallback(async () => {
+    try {
+      const res = await fetch('/api/zones');
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (e) {
+      console.error('Failed to load zone map:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      try {
+        const res = await fetch('/api/zones');
+        if (res.ok && !ignore) {
+          const json = await res.json();
+          setData(json);
+        }
+      } catch {}
+      if (!ignore) setLoading(false);
+    }
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (loading && !data) {
+    return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading warehouse floor layout...</div>;
+  }
+
+  const zones = data?.zones || {};
+  const dockBays = data?.dockBays || {};
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h2>Warehouse Storage Zones &amp; Outbound Docks</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Visual layout of aisles, racks, bins, and active staging bays.</p>
+        </div>
+        <button className="secondary" onClick={fetchZones} style={{ fontSize: '0.85rem' }}>🔄 Refresh Floor Map</button>
+      </div>
+
+      {/* Storage Zones */}
+      <h3 style={{ fontSize: '1.15rem', marginBottom: '0.75rem' }}>📦 Storage Aisles &amp; Bins (Zones A - D)</h3>
+      <div className="zone-grid">
+        {Object.entries(zones).map(([zoneKey, z]) => (
+          <div key={zoneKey} className="zone-card" onClick={() => setActiveZoneModal(z)} style={{ cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <strong style={{ fontSize: '1.1rem' }}>{z.name}</strong>
+              <span className="mono" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{z.count} Orders</span>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+              {zoneKey === 'Zone A' && '⚡ Fast-Moving SKU Aisles (Racks R01 - R08)'}
+              {zoneKey === 'Zone B' && '📦 Bulk Pallet Racks (Racks R01 - R08)'}
+              {zoneKey === 'Zone C' && '🔒 Fragile & High-Value Secure Storage'}
+              {zoneKey === 'Zone D' && '🔄 Inbound Staging & Overflow Racks'}
+            </div>
+
+            {z.urgentCount > 0 && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--accent-rust)', fontWeight: 700, marginBottom: '0.5rem' }}>
+                🚨 {z.urgentCount} Urgent / Express Order(s)
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+              {(z.orders || []).slice(0, 4).map(o => (
+                <span key={o.id} style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'var(--bg-paper-darker)', border: '1px solid var(--border-color)', borderRadius: '2px', fontFamily: 'var(--font-mono)' }}>
+                  {o.orderNo}
+                </span>
+              ))}
+              {(z.orders || []).length > 4 && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>+{z.orders.length - 4} more</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Outbound Loading Docks */}
+      <h3 style={{ fontSize: '1.15rem', margin: '2rem 0 0.75rem' }}>⚓ Outbound Staging Docks (Bays 1 - 6)</h3>
+      <div className="dock-grid">
+        {Object.entries(dockBays).map(([bayKey, bay]) => {
+          const isOccupied = bay.count > 0;
+          return (
+            <div
+              key={bayKey}
+              className={`dock-card ${isOccupied ? 'occupied' : ''}`}
+              onClick={() => isOccupied && setActiveZoneModal(bay)}
+              style={{ cursor: isOccupied ? 'pointer' : 'default' }}
+            >
+              <div style={{ fontSize: '1.2rem', marginBottom: '0.25rem' }}>{isOccupied ? '🚚' : '🚪'}</div>
+              <strong style={{ display: 'block', fontSize: '0.95rem' }}>{bay.name}</strong>
+              <div style={{ fontSize: '0.75rem', color: isOccupied ? 'var(--accent-amber)' : 'var(--text-muted)', fontWeight: 600, marginTop: '0.25rem' }}>
+                {isOccupied ? `${bay.count} Staged Order(s)` : 'Available'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Zone Orders Detail Modal */}
+      {activeZoneModal && (
+        <div className="modal-overlay" onClick={() => setActiveZoneModal(null)}>
+          <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+            <h3>📍 {activeZoneModal.name} — Active Orders ({activeZoneModal.orders?.length || 0})</h3>
+            <hr style={{ margin: '0.75rem 0 1rem' }} />
+
+            <div className="ledger-table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+              <table className="ledger-table">
+                <thead>
+                  <tr>
+                    <th>Order No</th>
+                    <th>Status</th>
+                    <th>Priority</th>
+                    <th>Transporter</th>
+                    <th>Boxes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(activeZoneModal.orders || []).map(ord => (
+                    <tr key={ord.id}>
+                      <td style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{ord.orderNo}</td>
+                      <td><span className={`status-badge ${ord.status}`}>{ord.status}</span></td>
+                      <td><span className={`priority-tag ${ord.priority}`}>{ord.priority}</span></td>
+                      <td>{ord.transporter || '—'}</td>
+                      <td>{ord.boxCount} Pkg</td>
+                    </tr>
+                  ))}
+                  {(activeZoneModal.orders || []).length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>No orders currently in this location.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>
+              <button type="button" className="secondary" onClick={() => setActiveZoneModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
