@@ -1,9 +1,9 @@
 @echo off
-title Warehouse Management System Launcher
+title Warehouse Management
 cd /d "%~dp0"
 
 echo ====================================================
-echo Starting Warehouse Management System...
+echo Starting Warehouse Management...
 echo ====================================================
 
 if exist "runtime\node.exe" (

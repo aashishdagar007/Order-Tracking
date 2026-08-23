@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Order Tracking System',
-  description: 'Order tracking and inventory management system for warehouse team',
+  title: 'Warehouse Management',
+  description: 'Enterprise Warehouse Management & Fulfillment System',
 };
 
 export default function RootLayout({ children }) {

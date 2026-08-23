@@ -352,7 +352,7 @@ export default function WorkerDashboard() {
       <nav>
         <div className="logo">
           <span>📦</span>
-          <span>Warehouse Fulfillment Hub</span>
+          <span>Warehouse Management</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button

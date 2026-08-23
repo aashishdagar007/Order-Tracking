@@ -1,4 +1,4 @@
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -24,11 +24,33 @@ function getLocalIp() {
 const localIp = getLocalIp();
 
 console.log('====================================================');
-console.log('🏭 WAREHOUSE MANAGEMENT SYSTEM - WINDOWS LAUNCHER');
+console.log('📦 WAREHOUSE MANAGEMENT - WINDOWS LAUNCHER');
 console.log('====================================================');
 console.log(`Local Terminal URL:    http://localhost:${PORT}`);
 console.log(`Android Scanner IP:    http://${localIp}:${PORT}`);
 console.log('====================================================');
+
+// Automatically free port 3000 if occupied by a stale instance
+function freePortIfOccupied(port) {
+  try {
+    const output = execSync(`netstat -ano | findstr :${port}`, { stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+    const lines = output.trim().split('\n');
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 5 && parts[1].includes(`:${port}`) && parts[3] === 'LISTENING') {
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== '0' && pid !== String(process.pid)) {
+          console.log(`⚡ Freeing port ${port} (terminating stale process PID ${pid})...`);
+          execSync(`taskkill /F /PID ${pid} 2>nul`, { stdio: 'ignore' });
+        }
+      }
+    }
+  } catch (e) {
+    // Port is free
+  }
+}
+
+freePortIfOccupied(PORT);
 
 // Ensure DB directory exists
 const prismaDir = path.join(APP_DIR, 'prisma');

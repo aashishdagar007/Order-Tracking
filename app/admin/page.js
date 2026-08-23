@@ -62,8 +62,8 @@ export default function AdminDashboard() {
       {/* Navigation */}
       <nav>
         <div className="logo">
-          <span>🏭</span>
-          <span>Warehouse Master Control</span>
+          <span>📦</span>
+          <span>Warehouse Management</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: '0', flexWrap: 'wrap' }}>

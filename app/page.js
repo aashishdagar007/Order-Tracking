@@ -49,32 +49,41 @@ export default function Login() {
       justifyContent: 'center',
       alignItems: 'center',
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, var(--bg-paper) 0%, var(--bg-paper-darker) 100%)'
+      backgroundColor: '#f8fafc',
+      padding: '1.5rem'
     }}>
-      <div style={{ width: '100%', maxWidth: '420px', padding: '1rem' }}>
+      <div style={{ width: '100%', maxWidth: '440px' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{
-            display: 'inline-block',
-            padding: '0.75rem 1.5rem',
-            border: '2px solid var(--border-dark)',
-            marginBottom: '1rem'
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '56px',
+            height: '56px',
+            background: '#ffffff',
+            borderRadius: '12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            fontSize: '1.75rem',
+            marginBottom: '1rem',
+            border: '1px solid #e2e8f0'
           }}>
-            <h1 style={{ fontSize: '1.5rem', margin: 0, letterSpacing: '0.05em' }}>
-              WAREHOUSE WMS
-            </h1>
+            📦
           </div>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            Internal Fulfillment &amp; Operations Terminal
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 0.25rem', color: '#0f172a' }}>
+            Warehouse Management
+          </h1>
+          <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+            Fulfillment, Scanning &amp; Inventory Terminal
           </p>
         </div>
 
-        <div className="document-container" style={{ margin: 0, padding: '2rem' }}>
+        <div className="document-container" style={{ margin: 0, padding: '2.25rem' }}>
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Username */}
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Username / Name
+              <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}>
+                Username / Operator ID
               </label>
               <input
                 type="text"
@@ -88,7 +97,7 @@ export default function Login() {
 
             {/* Password */}
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}>
                 Password
               </label>
               <input
@@ -103,21 +112,21 @@ export default function Login() {
 
             {error && (
               <div style={{
-                padding: '0.75rem', background: 'rgba(178,74,53,0.1)',
-                border: '1px solid var(--accent-rust)', borderRadius: '2px',
-                color: 'var(--accent-rust)', fontSize: '0.9rem', fontWeight: 500
+                padding: '0.75rem 1rem', background: '#fef2f2',
+                border: '1px solid #fecaca', borderRadius: '6px',
+                color: '#dc2626', fontSize: '0.88rem', fontWeight: 500
               }}>
                 {error}
               </div>
             )}
 
-            <button type="submit" disabled={loading} style={{ width: '100%', marginTop: '0.5rem', fontSize: '1rem', letterSpacing: '0.05em' }}>
-              {loading ? 'AUTHENTICATING...' : 'ACCESS TERMINAL'}
+            <button type="submit" disabled={loading} style={{ width: '100%', marginTop: '0.5rem', fontSize: '0.95rem', padding: '0.8rem' }}>
+              {loading ? 'AUTHENTICATING...' : 'SIGN IN TO DASHBOARD'}
             </button>
           </form>
 
-          <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px dotted var(--border-color)', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-            Default Admin: <span className="mono">admin</span> / <span className="mono">admin123</span><br />
+          <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', textAlign: 'center', lineHeight: 1.6 }}>
+            Default Admin: <strong style={{ color: '#0f172a' }}>admin</strong> / <strong style={{ color: '#0f172a' }}>admin123</strong><br />
             Worker accounts are created &amp; managed by Admins.
           </div>
         </div>

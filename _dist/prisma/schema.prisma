@@ -56,6 +56,10 @@ model Order {
   transporter  String?       // Carrier / Courier name e.g. "BlueDart", "Delhivery"
   vehicleNo    String?       // Transport truck plate number
   boxCount     Int           @default(1)
+  itemCount    Int           @default(1)
+  skuList      String?       // JSON list of line items/SKUs e.g. [{"sku":"SKU-101","qty":2,"name":"Item 1"}]
+  manifestId   String?       // Wave / Dispatch Manifest Grouping ID
+  targetSla    DateTime?     // Target SLA dispatch deadline
   weightKg     Float?
   notes        String?
   extra        String?       // JSON string for raw Excel attributes

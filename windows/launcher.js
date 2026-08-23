@@ -24,7 +24,7 @@ function getLocalIp() {
 const localIp = getLocalIp();
 
 console.log('====================================================');
-console.log('🏭 WAREHOUSE MANAGEMENT SYSTEM - WINDOWS LAUNCHER');
+console.log('📦 WAREHOUSE MANAGEMENT - WINDOWS LAUNCHER');
 console.log('====================================================');
 console.log(`Local Terminal URL:    http://localhost:${PORT}`);
 console.log(`Android Scanner IP:    http://${localIp}:${PORT}`);
