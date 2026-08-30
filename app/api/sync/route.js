@@ -75,6 +75,7 @@ export async function POST(request) {
               boxCount: ord.boxCount ? parseInt(ord.boxCount, 10) : 1,
               weightKg: ord.weightKg ? parseFloat(ord.weightKg) : null,
               notes: ord.notes || null,
+              extra: ord.extra || null,
               enteredBy: ord.enteredBy || actorName,
               enteredAt: now
             }

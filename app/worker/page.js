@@ -437,7 +437,7 @@ export default function WorkerDashboard() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Scan / Type Order ID (e.g. ORD-1002, 860300...)"
+                placeholder="Scan / Type Order ID, Customer, City, Invoice, LR No..."
                 style={{ fontSize: '1.15rem', flex: 1, padding: '0.85rem 1rem' }}
                 autoFocus
               />
@@ -625,6 +625,48 @@ export default function WorkerDashboard() {
                 {order.status.replace('_', ' ')}
               </span>
             </div>
+
+            {/* Prominent Customer & Excel Consignment Details */}
+            {(() => {
+              const extras = getExtraFields(order) || {};
+              const customer = extras.Customer || extras['Customer Name'] || extras['Party Name'] || extras['Party'] || extras['Consignee'] || extras['Buyer'];
+              const destination = extras.Destination || extras['Destination City'] || extras['City'] || extras['Delivery City'] || order.zone;
+              const items = extras['Item Description'] || extras['Product'] || extras['Item'] || extras['SKU'] || order.skuList;
+
+              if (!customer && !destination && !items) return null;
+
+              return (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '0.75rem',
+                  margin: '0.75rem 0',
+                  padding: '0.85rem 1rem',
+                  background: 'rgba(61,90,128,0.06)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '2px'
+                }}>
+                  {customer && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Customer / Party</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>🏢 {customer}</div>
+                    </div>
+                  )}
+                  {destination && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination / City</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>🗺️ {destination}</div>
+                    </div>
+                  )}
+                  {items && (
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Item / Description</div>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={items}>📦 {items}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Physical Warehouse Location Banner */}
             <div style={{

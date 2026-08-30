@@ -60,7 +60,12 @@ if (!fs.existsSync(prismaDir)) {
 
 // Determine node executable and Next.js start command
 const nodeExe = process.execPath;
-const nextCli = path.join(APP_DIR, 'node_modules', 'next', 'dist', 'bin', 'next');
+const possibleNextClis = [
+  path.join(APP_DIR, 'node_modules', 'next', 'dist', 'bin', 'next'),
+  path.join(APP_DIR, 'node_modules', 'next', 'bin', 'next'),
+  path.join(APP_DIR, 'node_modules', '.bin', 'next')
+];
+const nextCli = possibleNextClis.find(p => fs.existsSync(p));
 const hasProductionBuild = fs.existsSync(path.join(APP_DIR, '.next'));
 
 const env = {
@@ -71,23 +76,20 @@ const env = {
 };
 
 const nextCommand = hasProductionBuild ? 'start' : 'dev';
+console.log(`Using Node runtime: ${nodeExe}`);
 console.log(`Launching server in ${env.NODE_ENV} mode...`);
 
 let serverProcess = null;
 
-if (fs.existsSync(nextCli)) {
+if (nextCli) {
   serverProcess = spawn(nodeExe, [nextCli, nextCommand, '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     env,
     stdio: 'inherit'
   });
 } else {
-  serverProcess = spawn('npx', ['next', nextCommand, '-H', '0.0.0.0', '-p', String(PORT)], {
-    cwd: APP_DIR,
-    env,
-    shell: true,
-    stdio: 'inherit'
-  });
+  console.error('❌ Could not locate local next binary in node_modules.');
+  process.exit(1);
 }
 
 serverProcess.on('error', (err) => {

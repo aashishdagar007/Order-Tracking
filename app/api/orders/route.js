@@ -30,7 +30,8 @@ export async function GET(request) {
     // Single order lookup
     if (orderNo && orderNo !== '_all') {
       const key = sanitizeOrderNo(orderNo);
-      const order = await prisma.order.findUnique({
+      const rawTrimmed = String(orderNo).trim();
+      let order = await prisma.order.findUnique({
         where: { orderNo: key },
         include: {
           events: {
@@ -38,6 +39,25 @@ export async function GET(request) {
           }
         }
       });
+
+      // Fallback: If not found by primary orderNo, search by invoiceNo, lrNo, or extra attributes
+      if (!order && rawTrimmed) {
+        order = await prisma.order.findFirst({
+          where: {
+            OR: [
+              { invoiceNo: { contains: rawTrimmed } },
+              { lrNo: { contains: rawTrimmed } },
+              { extra: { contains: rawTrimmed } }
+            ]
+          },
+          include: {
+            events: {
+              orderBy: { timestamp: 'asc' }
+            }
+          }
+        });
+      }
+
       return NextResponse.json({ order: order || null });
     }
 
@@ -65,7 +85,9 @@ export async function GET(request) {
         { zone: { contains: query } },
         { transporter: { contains: query } },
         { vehicleNo: { contains: query } },
-        { notes: { contains: query } }
+        { notes: { contains: query } },
+        { skuList: { contains: query } },
+        { extra: { contains: query } }
       ];
     }
 
@@ -86,8 +108,20 @@ export async function GET(request) {
       }
     });
 
+    // Discover all unique Excel columns across the returned orders
+    const excelColumnsSet = new Set();
+    orders.forEach(o => {
+      if (o.extra) {
+        try {
+          const parsed = JSON.parse(o.extra);
+          Object.keys(parsed).forEach(k => excelColumnsSet.add(k));
+        } catch {}
+      }
+    });
+
     return NextResponse.json({
       orders,
+      availableExcelColumns: Array.from(excelColumnsSet),
       pagination: {
         total,
         page,

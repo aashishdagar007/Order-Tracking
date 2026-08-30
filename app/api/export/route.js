@@ -46,7 +46,10 @@ export async function GET() {
         try {
           const extraJson = JSON.parse(order.extra);
           for (const [k, v] of Object.entries(extraJson)) {
-            base[`[Raw] ${k}`] = v;
+            const cleanKey = k.replace(/^\[Raw\]\s*/i, '');
+            if (!(cleanKey in base)) {
+              base[cleanKey] = v;
+            }
           }
         } catch {}
       }
