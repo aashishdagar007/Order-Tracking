@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import * as xlsx from 'xlsx';
 import { printThermalLabel, printDeliveryChallan } from '@/lib/thermalLabel';
+import { useWebSocket } from '@/app/hooks/useWebSocket';
+import BarcodeScanner from '@/app/components/BarcodeScanner';
 
 const STATUS_COLUMNS = [
   { key: 'RECEIVED', label: 'Received / Queued', color: '#5a5a5a' },
@@ -166,6 +168,17 @@ function OperationsTab() {
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [extraColFilter, setExtraColFilter] = useState('');  // Excel column key to filter by
   const [extraColVal, setExtraColVal] = useState('');        // Value to match
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Real-time WebSocket connection
+  const handleWsMessage = useCallback((event) => {
+    if (event.type === 'STATUS_CHANGE') {
+      setOrders(prev => prev.map(o => o.orderNo === event.orderNo ? { ...o, status: event.newStatus, updatedAt: new Date().toISOString() } : o));
+    } else if (event.type === 'ORDER_UPDATE' || event.type === 'EXCEL_IMPORTED' || event.type === 'ORDER_DELETED') {
+      fetchOrders();
+    }
+  }, []);
+  const { connectionStatus } = useWebSocket('main-warehouse', handleWsMessage);
 
   // Selected for Bulk Action
   const [selectedIds, setSelectedIds] = useState([]);
@@ -566,13 +579,24 @@ function OperationsTab() {
       }}>
         {/* Universal Search & Stage Filters */}
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', flex: 1, minWidth: '320px' }}>
-          <input
-            type="text"
-            placeholder="🔍 Search Order No, Customer, City, Product, Invoice, LR, Truck..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ maxWidth: '420px', fontSize: '0.88rem' }}
-          />
+          <div style={{ display: 'flex', gap: '0.35rem', flex: 1, maxWidth: '480px' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search Order No, Customer, City, Product, Invoice, LR, Truck..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ flex: 1, fontSize: '0.88rem' }}
+            />
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setScannerOpen(true)}
+              style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+              title="Open camera to scan barcode or QR code"
+            >
+              📸 Scan
+            </button>
+          </div>
 
           <select
             value={statusFilter}
@@ -1439,6 +1463,18 @@ function OperationsTab() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Barcode Scanner Modal */}
+      {scannerOpen && (
+        <BarcodeScanner
+          title="Scan Order Barcode / AWB"
+          onScan={(code) => {
+            setSearch(code);
+            setScannerOpen(false);
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
       )}
     </div>
   );

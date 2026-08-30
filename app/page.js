@@ -22,12 +22,15 @@ export default function Login() {
           if (data.user.role === 'ADMIN') {
             router.push('/admin');
             return;
+          } else if (data.user.role === 'CLIENT') {
+            router.push('/client');
+            return;
           } else {
             router.push('/worker');
             return;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       setCheckingExisting(false);
     }
     checkExisting();
@@ -60,8 +63,11 @@ export default function Login() {
           localStorage.setItem('wms_user', JSON.stringify(data.user));
         }
 
-        if (data.role === 'ADMIN') {
+        const role = data.role || data.user?.role;
+        if (role === 'ADMIN') {
           router.push('/admin');
+        } else if (role === 'CLIENT') {
+          router.push('/client');
         } else {
           router.push('/worker');
         }
@@ -168,7 +174,6 @@ export default function Login() {
           </form>
 
           <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid #e2e8f0', fontSize: '0.82rem', color: '#64748b', textAlign: 'center', lineHeight: 1.6 }}>
-            Default Admin: <strong style={{ color: '#0f172a' }}>admin</strong> / <strong style={{ color: '#0f172a' }}>admin123</strong><br />
             Worker accounts are created &amp; managed by Admins.
           </div>
         </div>

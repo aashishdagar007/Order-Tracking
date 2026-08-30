@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { playSuccessBeep, playWarningBeep, playErrorBuzzer, playDispatchChime } from '@/lib/audio';
 import { printThermalLabel, printDeliveryChallan } from '@/lib/thermalLabel';
+import BarcodeScanner from '@/app/components/BarcodeScanner';
 
 const WORKFLOW_STEPS = [
   { key: 'RECEIVED', label: 'Received' },
@@ -1253,6 +1254,21 @@ export default function WorkerDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Barcode Scanner Camera Modal */}
+      {scannerOpen && (
+        <BarcodeScanner
+          title="Scan Consignment Barcode / QR"
+          onScan={(code) => {
+            setSearch(code);
+            setScannerOpen(false);
+            if (typeof handleSearch === 'function') {
+              handleSearch(null, code);
+            }
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
       )}
     </div>
   );

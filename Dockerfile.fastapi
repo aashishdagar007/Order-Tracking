@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.fastapi — Lightweight Python FastAPI service
+# Final image: ~120MB
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.12-slim AS base
+
+# System deps: only what's needed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r wms && useradd -r -g wms wms
+
+WORKDIR /app
+
+# Install Python dependencies (cached layer)
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY backend/ ./backend/
+
+# Run as non-root
+RUN chown -R wms:wms /app
+USER wms
+
+EXPOSE 8000
+
+# Uvicorn with 2 workers (configurable via FASTAPI_WORKERS env)
+CMD ["sh", "-c", "uvicorn backend.main:app --host ${FASTAPI_HOST:-0.0.0.0} --port ${FASTAPI_PORT:-8000} --workers ${FASTAPI_WORKERS:-2} --no-access-log"]

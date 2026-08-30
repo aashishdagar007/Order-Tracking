@@ -1,0 +1,177 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Warehouse WMS — Docker Compose
+# Start everything: docker compose up -d
+# Stop everything:  docker compose down
+# View logs:        docker compose logs -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  wms_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  nginx_logs:
+  threat_data:
+
+services:
+
+  # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: wms_postgres
+    restart: unless-stopped
+    networks: [wms_net]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-warehouse_wms}
+      POSTGRES_USER: ${POSTGRES_USER:-wms_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Schema auto-applied on first start
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"   # only accessible from localhost
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wms_user} -d ${POSTGRES_DB:-warehouse_wms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis 7 ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: wms_redis
+    restart: unless-stopped
+    networks: [wms_net]
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-changeme_redis}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"   # only accessible from localhost
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_redis}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    container_name: wms_fastapi
+    restart: unless-stopped
+    networks: [wms_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_redis}@redis:6379/0
+    volumes:
+      - ./backend:/app/backend:ro
+      - threat_data:/tmp
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Next.js Frontend ──────────────────────────────────────────────────────
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.nextjs
+    container_name: wms_nextjs
+    restart: unless-stopped
+    networks: [wms_net]
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE: /api/v2
+      NEXT_PUBLIC_WS_PATH: /ws
+      # Legacy SQLite kept for existing Next.js API routes
+      DATABASE_URL: ${DATABASE_URL:-file:./prisma/dev.db}
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/auth"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── Nginx Reverse Proxy ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: wms_nginx
+    restart: unless-stopped
+    networks: [wms_net]
+    depends_on:
+      - nextjs
+      - fastapi
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro           # mount SSL certs if available
+      - nginx_logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Python XGBoost Threat Detector ────────────────────────────────────────
+  threat-detector:
+    build:
+      context: ./security/threat_detector
+      dockerfile: Dockerfile.detector
+    container_name: wms_threat_detector
+    restart: unless-stopped
+    networks: [wms_net]
+    depends_on:
+      - nginx
+    env_file: .env
+    environment:
+      NGINX_LOG_PATH: /nginx_logs/access.log
+      PACKET_WATCHER_WATCHFILE: /tmp/suspicious_ips.txt
+    volumes:
+      - nginx_logs:/nginx_logs:ro              # read Nginx logs
+      - threat_data:/tmp                       # shared with packet_watcher
+      - ./security/threat_detector:/app:ro
+    # Needs host network to run iptables on Linux; on Windows handled via netsh
+    # Comment out network_mode if on Windows Docker Desktop
+    # network_mode: host
+
+  # ── Cloudflare Tunnel (Optional — zero-cost remote access) ────────────────
+  # Uncomment and set CLOUDFLARE_TUNNEL_TOKEN in .env to enable
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: wms_cloudflared
+  #   restart: unless-stopped
+  #   networks: [wms_net]
+  #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+  #   depends_on:
+  #     - nginx

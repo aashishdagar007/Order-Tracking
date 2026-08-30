@@ -1,0 +1,43 @@
+# Git
+.git
+.github
+.gitignore
+
+# Node & Next.js build artifacts
+node_modules
+.next
+.turbo
+npm-debug.log*
+
+# Windows desktop distribution & build outputs (Huge: > 4 GB)
+windows
+_dist
+
+# Agent & IDE caches
+.agents
+.claude
+.vscode
+.windsurf
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/*.db
+prisma/*.db-journal
+
+# Logs & temp
+*.log
+tmp/
+temp/
