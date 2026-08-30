@@ -23,8 +23,11 @@ export async function GET(request) {
   const priority = searchParams.get('priority');
   const transporter = searchParams.get('transporter');
   const search = searchParams.get('search');
+  const extraKey = searchParams.get('extraKey');   // Filter by an Excel column key
+  const extraVal = searchParams.get('extraVal');   // ...with this value
   const limit = parseInt(searchParams.get('limit') || '100', 10);
   const page = parseInt(searchParams.get('page') || '1', 10);
+
 
   try {
     // Single order lookup
@@ -90,6 +93,21 @@ export async function GET(request) {
         { extra: { contains: query } }
       ];
     }
+
+    // Filter by a specific Excel column key/value stored in the extra JSON field
+    // Uses a string-contains approach that works across all Prisma/SQLite setups
+    if (extraKey && extraVal && extraVal.trim()) {
+      const snippet = `"${extraKey}":"${extraVal.trim()}"`;
+      const snippetAlt = `"${extraKey}": "${extraVal.trim()}"`;
+      if (!where.AND) where.AND = [];
+      where.AND.push({
+        OR: [
+          { extra: { contains: snippet } },
+          { extra: { contains: snippetAlt } }
+        ]
+      });
+    }
+
 
     const total = await prisma.order.count({ where });
     const orders = await prisma.order.findMany({

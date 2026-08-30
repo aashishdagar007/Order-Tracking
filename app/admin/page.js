@@ -164,6 +164,8 @@ function OperationsTab() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
+  const [extraColFilter, setExtraColFilter] = useState('');  // Excel column key to filter by
+  const [extraColVal, setExtraColVal] = useState('');        // Value to match
 
   // Selected for Bulk Action
   const [selectedIds, setSelectedIds] = useState([]);
@@ -267,6 +269,10 @@ function OperationsTab() {
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (priorityFilter !== 'ALL') params.set('priority', priorityFilter);
       if (search.trim()) params.set('search', search.trim());
+      if (extraColFilter && extraColVal.trim()) {
+        params.set('extraKey', extraColFilter);
+        params.set('extraVal', extraColVal.trim());
+      }
       params.set('limit', '300');
 
       const [resOrders, resAnalytics] = await Promise.all([
@@ -299,6 +305,10 @@ function OperationsTab() {
         if (statusFilter !== 'ALL') params.set('status', statusFilter);
         if (priorityFilter !== 'ALL') params.set('priority', priorityFilter);
         if (search.trim()) params.set('search', search.trim());
+        if (extraColFilter && extraColVal.trim()) {
+          params.set('extraKey', extraColFilter);
+          params.set('extraVal', extraColVal.trim());
+        }
         params.set('limit', '300');
 
         const [resOrders, resAnalytics] = await Promise.all([
@@ -326,7 +336,7 @@ function OperationsTab() {
     }
     loadData();
     return () => { ignore = true; };
-  }, [statusFilter, priorityFilter, search]);
+  }, [statusFilter, priorityFilter, search, extraColFilter, extraColVal]);
 
   const handleOpenDetails = (order) => {
     setSelectedOrder(order);
@@ -590,6 +600,42 @@ function OperationsTab() {
             <option value="STANDARD">Standard</option>
           </select>
         </div>
+
+        {/* Dynamic Excel Column Filter */}
+        {allDiscoveredExcelCols.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', background: 'rgba(61,90,128,0.05)', border: '1px solid var(--border-color)', borderRadius: '2px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>🗂 Excel Column:</span>
+            <select
+              value={extraColFilter}
+              onChange={(e) => { setExtraColFilter(e.target.value); setExtraColVal(''); }}
+              style={{ width: 'auto', minWidth: '160px', fontSize: '0.82rem', padding: '0.3rem 0.5rem' }}
+            >
+              <option value="">— Pick a column —</option>
+              {allDiscoveredExcelCols.map(col => (
+                <option key={col} value={col}>{col}</option>
+              ))}
+            </select>
+            {extraColFilter && (
+              <input
+                type="text"
+                placeholder={`Filter by ${extraColFilter}…`}
+                value={extraColVal}
+                onChange={(e) => setExtraColVal(e.target.value)}
+                style={{ fontSize: '0.82rem', padding: '0.3rem 0.5rem', minWidth: '180px', maxWidth: '260px' }}
+              />
+            )}
+            {(extraColFilter || extraColVal) && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => { setExtraColFilter(''); setExtraColVal(''); }}
+                style={{ padding: '0.25rem 0.55rem', fontSize: '0.78rem' }}
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+        )}
 
         {/* View Modes & Column Customizer */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
@@ -1941,13 +1987,13 @@ function LiveActivityTab() {
 }
 
 // ─────────────────────────────────────────
-// Upload Tab (Interactive Preview & Mapping)
+// Upload Tab (Web Worker + Multi-Sheet + Full Viewer)
 // ─────────────────────────────────────────
 function UploadTab({ onViewOrders }) {
   const [file, setFile] = useState(null);
-  const [workbook, setWorkbook] = useState(null);
-  const [sheetNames, setSheetNames] = useState([]);
-  const [selectedSheet, setSelectedSheet] = useState('');
+  const [fileBuffer, setFileBuffer] = useState(null); // raw ArrayBuffer retained for viewer
+  const [sheetMeta, setSheetMeta] = useState([]);       // [{name, rowCount, headers}]
+  const [selectedSheets, setSelectedSheets] = useState([]); // sheets to import (checkboxes)
   const [previewHeaders, setPreviewHeaders] = useState([]);
   const [previewRows, setPreviewRows] = useState([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -1955,79 +2001,120 @@ function UploadTab({ onViewOrders }) {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState('');
+  const workerRef = useRef(null);
+
+  // Full viewer state
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerSheet, setViewerSheet] = useState('');
+  const [viewerHeaders, setViewerHeaders] = useState([]);
+  const [viewerRows, setViewerRows] = useState([]);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerSearch, setViewerSearch] = useState('');
+  const [viewerScrollTop, setViewerScrollTop] = useState(0);
+  const viewerContainerRef = useRef(null);
+
+  const ROW_HEIGHT = 32;
+  const VISIBLE_BUFFER = 10;
+
+  // Compute which viewer rows are visible (virtualization)
+  const filteredViewerRows = viewerSearch.trim()
+    ? viewerRows.filter(row => row.some(cell => String(cell).toLowerCase().includes(viewerSearch.toLowerCase())))
+    : viewerRows;
+  const totalViewerRows = filteredViewerRows.length;
+  const containerHeight = 500; // px
+  const visibleStart = Math.max(0, Math.floor(viewerScrollTop / ROW_HEIGHT) - VISIBLE_BUFFER);
+  const visibleEnd = Math.min(totalViewerRows, Math.ceil((viewerScrollTop + containerHeight) / ROW_HEIGHT) + VISIBLE_BUFFER);
+  const visibleRows = filteredViewerRows.slice(visibleStart, visibleEnd);
+  const paddingTop = visibleStart * ROW_HEIGHT;
+  const paddingBottom = Math.max(0, (totalViewerRows - visibleEnd)) * ROW_HEIGHT;
+
+  // Cleanup worker on unmount
+  useEffect(() => {
+    return () => { if (workerRef.current) workerRef.current.terminate(); };
+  }, []);
+
+  const spawnWorker = () => {
+    if (workerRef.current) workerRef.current.terminate();
+    const w = new Worker('/excelParser.worker.js');
+    workerRef.current = w;
+    return w;
+  };
 
   const parseFileLocally = async (selectedFile) => {
     if (!selectedFile) return;
     setFile(selectedFile);
     setResult(null);
+    setParseError('');
+    setParsing(true);
+    setSheetMeta([]);
+    setSelectedSheets([]);
+    setPreviewHeaders([]);
+    setPreviewRows([]);
+    setViewerOpen(false);
+
     try {
       const buffer = await selectedFile.arrayBuffer();
-      const wb = xlsx.read(buffer, { type: 'array' });
-      setWorkbook(wb);
-      setSheetNames(wb.SheetNames);
-      const defaultSheet = wb.SheetNames[0] || '';
-      setSelectedSheet(defaultSheet);
-      processSheetData(wb, defaultSheet);
+      setFileBuffer(buffer);
+
+      const worker = spawnWorker();
+      worker.onmessage = (e) => {
+        const msg = e.data;
+        if (msg.type === 'SHEET_LIST') {
+          setParsing(false);
+          setSheetMeta(msg.sheetMeta || []);
+          // Default: all sheets selected
+          setSelectedSheets((msg.sheetMeta || []).map(s => s.name));
+          setPreviewHeaders(msg.previewHeaders || []);
+          setPreviewRows(msg.previewRows || []);
+          setTotalRows(msg.totalRows || 0);
+
+          // Auto-mapping from first sheet headers
+          const headers = msg.previewHeaders || [];
+          const initialMapping = {};
+          headers.forEach(h => {
+            const norm = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (['orderno','orderid','order','pono','refno','referenceno','bookingno','consignmentno','docketno','awb','id','srno'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('orderNo')) initialMapping[h] = 'orderNo';
+            } else if (['customer','customername','party','partyname','consignee','buyer','client'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('customer')) initialMapping[h] = 'customer';
+            } else if (['destination','city','deliverycity','location','address','state'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('destination')) initialMapping[h] = 'destination';
+            } else if (['item','items','product','sku','description','material'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('skuList')) initialMapping[h] = 'skuList';
+            } else if (['transporter','carrier','courier','transport','logistics'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('transporter')) initialMapping[h] = 'transporter';
+            } else if (['status','stage','fulfillment','shipmentstatus'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('status')) initialMapping[h] = 'status';
+            } else if (['qty','quantity','boxes','cartons','boxcount','pieces','units'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('boxCount')) initialMapping[h] = 'boxCount';
+            } else if (['invoice','invoiceno','billno','challan'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('invoiceNo')) initialMapping[h] = 'invoiceNo';
+            } else if (['lr','lrno','docket','awb','trackingno','tracking'].includes(norm)) {
+              if (!Object.values(initialMapping).includes('lrNo')) initialMapping[h] = 'lrNo';
+            }
+          });
+          setCustomMapping(initialMapping);
+        } else if (msg.type === 'SHEET_DATA') {
+          setViewerHeaders(msg.headers || []);
+          setViewerRows(msg.rows || []);
+          setViewerLoading(false);
+        } else if (msg.type === 'ERROR') {
+          setParsing(false);
+          setViewerLoading(false);
+          setParseError(msg.message || 'Unknown parse error');
+        }
+      };
+      worker.onerror = (err) => {
+        setParsing(false);
+        setViewerLoading(false);
+        setParseError('Worker error: ' + (err.message || String(err)));
+      };
+      worker.postMessage({ type: 'PARSE_FILE', buffer }, [buffer]);
     } catch (err) {
-      console.error('Local parse error:', err);
-    }
-  };
-
-  const processSheetData = (wb, sheetName) => {
-    const ws = wb.Sheets[sheetName];
-    if (!ws) return;
-    const rows2D = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    if (rows2D.length === 0) return;
-
-    let bestIdx = 0;
-    let maxCols = 0;
-    for (let i = 0; i < Math.min(rows2D.length, 10); i++) {
-      const r = rows2D[i];
-      if (!Array.isArray(r)) continue;
-      const count = r.filter(c => c !== null && c !== undefined && String(c).trim().length > 0).length;
-      if (count > maxCols) {
-        maxCols = count;
-        bestIdx = i;
-      }
-    }
-
-    const headers = (rows2D[bestIdx] || []).map(h => String(h || '').trim()).filter(Boolean);
-    const dataOnly = rows2D.slice(bestIdx + 1).filter(r => r && r.some(c => c !== '' && c !== null && c !== undefined));
-    setPreviewHeaders(headers);
-    setPreviewRows(dataOnly.slice(0, 5));
-    setTotalRows(dataOnly.length);
-
-    // Smart auto-mapping suggestions
-    const initialMapping = {};
-    headers.forEach(h => {
-      const norm = h.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (['orderno', 'orderid', 'order', 'pono', 'refno', 'referenceno', 'bookingno', 'consignmentno', 'docketno', 'awb', 'id', 'srno'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('orderNo')) initialMapping[h] = 'orderNo';
-      } else if (['customer', 'customername', 'party', 'partyname', 'consignee', 'buyer', 'client'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('customer')) initialMapping[h] = 'customer';
-      } else if (['destination', 'city', 'deliverycity', 'location', 'address', 'state'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('destination')) initialMapping[h] = 'destination';
-      } else if (['item', 'items', 'product', 'sku', 'description', 'material'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('skuList')) initialMapping[h] = 'skuList';
-      } else if (['transporter', 'carrier', 'courier', 'transport', 'logistics'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('transporter')) initialMapping[h] = 'transporter';
-      } else if (['status', 'stage', 'fulfillment', 'shipmentstatus'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('status')) initialMapping[h] = 'status';
-      } else if (['qty', 'quantity', 'boxes', 'cartons', 'boxcount', 'pieces', 'units'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('boxCount')) initialMapping[h] = 'boxCount';
-      } else if (['invoice', 'invoiceno', 'billno', 'challan'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('invoiceNo')) initialMapping[h] = 'invoiceNo';
-      } else if (['lr', 'lrno', 'docket', 'awb', 'trackingno', 'tracking'].includes(norm)) {
-        if (!Object.values(initialMapping).includes('lrNo')) initialMapping[h] = 'lrNo';
-      }
-    });
-    setCustomMapping(initialMapping);
-  };
-
-  const handleSheetChange = (newSheet) => {
-    setSelectedSheet(newSheet);
-    if (workbook) {
-      processSheetData(workbook, newSheet);
+      setParsing(false);
+      setParseError('Failed to read file: ' + err.message);
     }
   };
 
@@ -2041,40 +2128,59 @@ function UploadTab({ onViewOrders }) {
   const handleMappingChange = (header, targetField) => {
     setCustomMapping(prev => {
       const updated = { ...prev };
-      if (!targetField) {
-        delete updated[header];
-      } else {
-        // Clear previous assignment to this target field
-        Object.keys(updated).forEach(k => {
-          if (updated[k] === targetField) delete updated[k];
-        });
+      if (!targetField) { delete updated[header]; }
+      else {
+        Object.keys(updated).forEach(k => { if (updated[k] === targetField) delete updated[k]; });
         updated[header] = targetField;
       }
       return updated;
     });
   };
 
+  const toggleSheet = (name) => {
+    setSelectedSheets(prev =>
+      prev.includes(name) ? prev.filter(s => s !== name) : [...prev, name]
+    );
+  };
+
+  const openViewer = (shName) => {
+    if (!fileBuffer || !workerRef.current) return;
+    setViewerSheet(shName);
+    setViewerRows([]);
+    setViewerHeaders([]);
+    setViewerSearch('');
+    setViewerScrollTop(0);
+    setViewerLoading(true);
+    setViewerOpen(true);
+    // Send a NEW buffer slice (worker consumes it)
+    const copyBuffer = fileBuffer.slice(0);
+    workerRef.current.postMessage({ type: 'GET_SHEET_DATA', buffer: copyBuffer, sheetName: shName }, [copyBuffer]);
+  };
+
   const doUpload = async () => {
-    if (!file) return;
+    if (!file || selectedSheets.length === 0) return;
     setUploading(true);
     setResult(null);
+
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('sheetName', selectedSheet);
+    formData.append('sheetNames', JSON.stringify(selectedSheets));
     formData.append('mapping', JSON.stringify(customMapping));
 
     try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const token = typeof window !== 'undefined' ? localStorage.getItem('wms_auth_token') : null;
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch('/api/upload', { method: 'POST', body: formData, headers });
       const data = await res.json();
       if (res.ok) {
+        const totalImported = data.totalProcessed || (data.added + data.updated);
         setResult({
           ok: true,
           added: data.added,
           updated: data.updated,
-          fallbackAssigned: data.fallbackAssigned || 0,
-          totalProcessed: data.totalProcessed || (data.added + data.updated),
-          headers: data.headersDetected || previewHeaders,
-          msg: `Successfully imported ${data.totalProcessed || (data.added + data.updated)} orders (${data.added} added, ${data.updated} updated). All Excel columns retained!`
+          totalProcessed: totalImported,
+          sheetsImported: data.sheetsImported || selectedSheets,
+          msg: `Successfully imported ${totalImported} orders from ${(data.sheetsImported || selectedSheets).length} sheet(s) — ${data.added} new, ${data.updated} updated.`
         });
       } else {
         setResult({ ok: false, msg: `Error: ${data.error}` });
@@ -2085,18 +2191,23 @@ function UploadTab({ onViewOrders }) {
     setUploading(false);
   };
 
+  const totalSelectedRows = sheetMeta
+    .filter(s => selectedSheets.includes(s.name))
+    .reduce((sum, s) => sum + s.rowCount, 0);
+
   return (
-    <div style={{ margin: '0 auto', maxWidth: '960px' }}>
-      {/* Title & Description */}
+    <div style={{ margin: '0 auto', maxWidth: '1040px' }}>
+
+      {/* Title */}
       <div style={{ marginBottom: '1.5rem', background: 'var(--bg-paper-lighter)', padding: '1.5rem', border: '1px solid var(--border-color)' }}>
         <h2 style={{ margin: '0 0 0.5rem 0' }}>📦 Full-Data Excel Import Engine</h2>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0, lineHeight: 1.5 }}>
-          Upload any warehouse shipment sheet (.xlsx / .xls). All custom business columns (Customer Name, Destination City, Items, Qty, Amount, etc.) are <strong>100% captured and retained</strong> with zero skipped rows.
+          Upload any warehouse shipment sheet (.xlsx / .xls). All sheets scanned instantly — select which to import. 100% of columns retained. Supports 15,000+ row files without freezing.
         </p>
       </div>
 
-      {/* Drag & Drop File Zone */}
-      {!file && (
+      {/* Drop Zone */}
+      {!file && !parsing && (
         <div
           onDrop={handleDrop}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -2105,77 +2216,96 @@ function UploadTab({ onViewOrders }) {
             padding: '3.5rem 2rem',
             border: `2px dashed ${dragOver ? 'var(--accent-blue)' : 'var(--border-dark)'}`,
             background: dragOver ? 'rgba(61,90,128,0.06)' : 'var(--bg-paper-lighter)',
-            textAlign: 'center',
-            transition: 'all 0.2s ease',
-            cursor: 'pointer',
-            borderRadius: '2px'
+            textAlign: 'center', transition: 'all 0.2s ease', cursor: 'pointer', borderRadius: '2px'
           }}
           onClick={() => document.getElementById('excel-file-input').click()}
         >
           <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>📊</div>
           <h3 style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>Drop your Excel file here or click to browse</h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>Supports .xlsx and .xls workbooks with any sheet structure</p>
-          <input
-            id="excel-file-input"
-            type="file"
-            accept=".xlsx,.xls"
-            style={{ display: 'none' }}
-            onChange={(e) => { if (e.target.files[0]) parseFileLocally(e.target.files[0]); }}
-          />
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>Supports .xlsx and .xls — large files (13,000+ rows, multiple sheets) handled smoothly</p>
+          <input id="excel-file-input" type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+            onChange={(e) => { if (e.target.files[0]) parseFileLocally(e.target.files[0]); }} />
         </div>
       )}
 
-      {/* File Loaded & Interactive Preview */}
-      {file && (
+      {/* Parsing Spinner */}
+      {parsing && (
+        <div style={{ padding: '3rem', textAlign: 'center', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem', animation: 'spin 1s linear infinite', display: 'inline-block' }}>⚙️</div>
+          <div style={{ fontWeight: 600, fontSize: '1rem' }}>Scanning file in background…</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.35rem' }}>Reading sheet structure without freezing your browser</div>
+        </div>
+      )}
+
+      {/* Parse Error */}
+      {parseError && (
+        <div style={{ padding: '1rem', background: 'rgba(178,74,53,0.08)', border: '1px solid var(--accent-rust)', borderRadius: '2px', color: 'var(--accent-rust)', fontWeight: 600 }}>
+          ❌ {parseError}
+          <button className="secondary" style={{ marginLeft: '1rem', padding: '0.3rem 0.7rem' }} onClick={() => { setFile(null); setParseError(''); }}>Try Again</button>
+        </div>
+      )}
+
+      {/* File loaded — main UI */}
+      {file && !parsing && sheetMeta.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* File & Sheet Overview Bar */}
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            flexWrap: 'wrap', gap: '1rem', padding: '1rem 1.25rem',
-            background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)'
-          }}>
+
+          {/* File info bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1rem 1.25rem', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)' }}>
             <div>
               <div style={{ fontWeight: 700, fontSize: '1rem' }}>📄 {file.name}</div>
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                {(file.size / 1024).toFixed(1)} KB · <strong>{totalRows}</strong> Data Rows · <strong>{previewHeaders.length}</strong> Columns Detected
+                {(file.size / 1024).toFixed(1)} KB · <strong>{sheetMeta.length}</strong> Sheet{sheetMeta.length > 1 ? 's' : ''} · <strong>{sheetMeta.reduce((s, m) => s + m.rowCount, 0).toLocaleString()}</strong> Total Data Rows
               </div>
             </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              {sheetNames.length > 1 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Sheet:</label>
-                  <select
-                    value={selectedSheet}
-                    onChange={(e) => handleSheetChange(e.target.value)}
-                    style={{ padding: '0.35rem 0.6rem', fontSize: '0.85rem', width: 'auto' }}
-                  >
-                    {sheetNames.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              )}
-
-              <button
-                className="secondary"
-                onClick={() => { setFile(null); setWorkbook(null); setResult(null); }}
-                style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}
-              >
-                Change File
-              </button>
-            </div>
+            <button className="secondary" onClick={() => { setFile(null); setFileBuffer(null); setSheetMeta([]); setResult(null); setViewerOpen(false); }} style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem' }}>
+              Change File
+            </button>
           </div>
 
-          {/* Interactive Column Mapping Overview */}
+          {/* Sheet Selection */}
+          <div style={{ padding: '1.25rem', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)' }}>
+            <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.95rem', fontWeight: 700 }}>
+              📋 Select Sheets to Import
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.65rem' }}>
+              {sheetMeta.map(sm => (
+                <label key={sm.name} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.75rem 1rem', background: selectedSheets.includes(sm.name) ? 'rgba(61,90,128,0.06)' : 'var(--bg-paper-darker)', border: `1px solid ${selectedSheets.includes(sm.name) ? 'var(--accent-blue)' : 'var(--border-color)'}`, borderRadius: '2px', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                  <input type="checkbox" checked={selectedSheets.includes(sm.name)} onChange={() => toggleSheet(sm.name)} style={{ marginTop: '2px', accentColor: 'var(--accent-blue)' }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{sm.name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                      <strong>{sm.rowCount.toLocaleString()}</strong> rows · <strong>{sm.headers.length}</strong> columns
+                    </div>
+                    {sm.headers.length > 0 && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem', fontStyle: 'italic', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }} title={sm.headers.join(', ')}>
+                        {sm.headers.slice(0, 4).join(', ')}{sm.headers.length > 4 ? ` +${sm.headers.length - 4} more` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    title={`View full sheet: ${sm.name}`}
+                    onClick={(e) => { e.preventDefault(); openViewer(sm.name); }}
+                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: 'var(--bg-paper)', border: '1px solid var(--border-color)', cursor: 'pointer', borderRadius: '2px', whiteSpace: 'nowrap' }}
+                  >
+                    👁 View
+                  </button>
+                </label>
+              ))}
+            </div>
+            {selectedSheets.length > 0 && (
+              <div style={{ marginTop: '0.75rem', fontSize: '0.83rem', color: 'var(--accent-blue)', fontWeight: 600 }}>
+                ✓ {selectedSheets.length} sheet{selectedSheets.length > 1 ? 's' : ''} selected · {totalSelectedRows.toLocaleString()} rows will be imported
+              </div>
+            )}
+          </div>
+
+          {/* Column Mapping */}
           <div style={{ padding: '1.25rem', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>
-                ⚡ Auto-Detected Field Mappings
-              </h4>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                All unmapped columns will be preserved in full as custom Excel attributes
-              </span>
+              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700 }}>⚡ Column Mapping (from first selected sheet)</h4>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Same mapping applied to all selected sheets</span>
             </div>
-
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
               {[
                 { label: 'Order ID / Ref No', key: 'orderNo', required: true },
@@ -2200,9 +2330,7 @@ function UploadTab({ onViewOrders }) {
                       style={{ width: '100%', fontSize: '0.8rem', padding: '0.3rem 0.5rem', background: 'var(--bg-paper-lighter)' }}
                     >
                       <option value="">-- Unassigned (Auto) --</option>
-                      {previewHeaders.map(h => (
-                        <option key={h} value={h}>{h}</option>
-                      ))}
+                      {previewHeaders.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
                   </div>
                 );
@@ -2210,123 +2338,220 @@ function UploadTab({ onViewOrders }) {
             </div>
           </div>
 
-          {/* Spreadsheet Live Preview Table (First 5 Rows) */}
-          <div style={{ background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-            <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>Live Sheet Preview (First {previewRows.length} of {totalRows} Rows)</span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Sheet: {selectedSheet}</span>
-            </div>
-            <div style={{ overflowX: 'auto', maxHeight: '240px' }}>
-              <table className="manifest-table" style={{ margin: 0, fontSize: '0.8rem' }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: '35px', textAlign: 'center' }}>#</th>
-                    {previewHeaders.map((h) => (
-                      <th key={h} style={{ whiteSpace: 'nowrap' }}>
-                        {h}
-                        {customMapping[h] && (
-                          <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--accent-blue)', fontWeight: 'normal' }}>
-                            → {customMapping[h]}
-                          </span>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewRows.map((row, idx) => (
-                    <tr key={idx}>
-                      <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                      {previewHeaders.map((h, colIdx) => (
-                        <td key={colIdx} style={{ whiteSpace: 'nowrap' }}>
-                          {row[colIdx] !== undefined && row[colIdx] !== null ? String(row[colIdx]) : '—'}
-                        </td>
+          {/* Live Preview (first 20 rows of first selected sheet) */}
+          {previewHeaders.length > 0 && (
+            <div style={{ background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+              <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>Preview — First {Math.min(previewRows.length, 20)} of {totalRows.toLocaleString()} Rows</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{previewHeaders.length} columns detected</span>
+              </div>
+              <div style={{ overflowX: 'auto', maxHeight: '220px', overflowY: 'auto' }}>
+                <table className="manifest-table" style={{ margin: 0, fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '35px', textAlign: 'center' }}>#</th>
+                      {previewHeaders.map(h => (
+                        <th key={h} style={{ whiteSpace: 'nowrap' }}>
+                          {h}
+                          {customMapping[h] && (
+                            <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--accent-blue)', fontWeight: 'normal' }}>→ {customMapping[h]}</span>
+                          )}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {previewRows.map((row, idx) => (
+                      <tr key={idx}>
+                        <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        {previewHeaders.map((h, colIdx) => (
+                          <td key={colIdx} style={{ whiteSpace: 'nowrap', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row[colIdx] !== undefined && row[colIdx] !== null && row[colIdx] !== '' ? String(row[colIdx]) : '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Import Action & Feedback */}
-          {!uploading && !result && (
+          {/* Import Button */}
+          {!uploading && !result && selectedSheets.length > 0 && (
             <button
               onClick={doUpload}
-              style={{
-                padding: '0.85rem 1.5rem',
-                fontSize: '1rem',
-                fontWeight: 700,
-                background: 'var(--text-main)',
-                color: 'var(--bg-paper-lighter)',
-                cursor: 'pointer'
-              }}
+              style={{ padding: '0.85rem 1.5rem', fontSize: '1rem', fontWeight: 700, background: 'var(--text-main)', color: 'var(--bg-paper-lighter)', cursor: 'pointer' }}
             >
-              📥 IMPORT {totalRows} ORDERS INTO WAREHOUSE REGISTER
+              📥 IMPORT {totalSelectedRows.toLocaleString()} ROWS FROM {selectedSheets.length} SHEET{selectedSheets.length > 1 ? 'S' : ''}
             </button>
           )}
-
-          {uploading && (
-            <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)', fontWeight: 600 }}>
-              ⏳ Ingesting and validating {totalRows} records, please wait...
+          {!uploading && !result && selectedSheets.length === 0 && (
+            <div style={{ padding: '0.85rem', background: 'rgba(178,74,53,0.07)', border: '1px solid var(--accent-rust)', color: 'var(--accent-rust)', fontWeight: 600, fontSize: '0.9rem' }}>
+              ⚠️ Select at least one sheet to import.
             </div>
           )}
 
+          {/* Uploading state */}
+          {uploading && (
+            <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--bg-paper-lighter)', border: '1px solid var(--border-color)', fontWeight: 600 }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>⚡</div>
+              Ingesting {totalSelectedRows.toLocaleString()} records from {selectedSheets.length} sheet{selectedSheets.length > 1 ? 's' : ''}…
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.35rem', fontWeight: 400 }}>Using batch import — this should be very fast.</div>
+            </div>
+          )}
+
+          {/* Result */}
           {result && (
-            <div style={{
-              padding: '1.25rem',
-              background: result.ok ? 'rgba(58,122,81,0.08)' : 'rgba(178,74,53,0.08)',
-              border: `1px solid ${result.ok ? 'var(--accent-green)' : 'var(--accent-rust)'}`,
-              borderRadius: '2px'
-            }}>
+            <div style={{ padding: '1.25rem', background: result.ok ? 'rgba(58,122,81,0.08)' : 'rgba(178,74,53,0.08)', border: `1px solid ${result.ok ? 'var(--accent-green)' : 'var(--accent-rust)'}`, borderRadius: '2px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, fontSize: '1rem', color: result.ok ? 'var(--accent-green)' : 'var(--accent-rust)' }}>
                 <span>{result.ok ? '✅' : '❌'}</span>
                 <span>{result.msg}</span>
               </div>
-
               {result.ok && (
-                <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.6 }}>
+                <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', lineHeight: 1.6 }}>
                   <div>• <strong>{result.added}</strong> new warehouse orders registered.</div>
                   <div>• <strong>{result.updated}</strong> existing orders merged and updated.</div>
                   <div>• <strong>0</strong> rows dropped or lost.</div>
-                  <div>• All <strong>{result.headers?.length || previewHeaders.length}</strong> columns available in Operations Table.</div>
-
+                  <div>• Imported from sheets: <strong>{(result.sheetsImported || []).join(', ')}</strong></div>
                   <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
                     {onViewOrders && (
-                      <button
-                        onClick={onViewOrders}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', fontWeight: 700 }}
-                      >
+                      <button onClick={onViewOrders} style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', fontWeight: 700 }}>
                         🚀 View Orders in Operations Table
                       </button>
                     )}
-                    <button
-                      className="secondary"
-                      onClick={() => { setFile(null); setWorkbook(null); setResult(null); }}
-                      style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
-                    >
-                      Import Another Sheet
+                    <button className="secondary" onClick={() => { setFile(null); setFileBuffer(null); setSheetMeta([]); setResult(null); setViewerOpen(false); }} style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}>
+                      Import Another File
                     </button>
                   </div>
                 </div>
               )}
-
               {!result.ok && (
-                <button
-                  className="secondary"
-                  style={{ marginTop: '0.75rem' }}
-                  onClick={() => setResult(null)}
-                >
-                  Try Again
-                </button>
+                <button className="secondary" style={{ marginTop: '0.75rem' }} onClick={() => setResult(null)}>Try Again</button>
               )}
             </div>
           )}
         </div>
       )}
+
+      {/* ── Full Sheet Viewer Modal ─────────────────────────────────────── */}
+      {viewerOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setViewerOpen(false)}
+          style={{ zIndex: 2000 }}
+        >
+          <div
+            className="modal-dialog"
+            onClick={e => e.stopPropagation()}
+            style={{ maxWidth: '95vw', width: '1200px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          >
+            {/* Viewer Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>📊 Full Sheet Viewer — {viewerSheet}</h3>
+                {!viewerLoading && (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    {filteredViewerRows.length.toLocaleString()}{viewerSearch ? ` filtered` : ''} of {viewerRows.length.toLocaleString()} rows · {viewerHeaders.length} columns
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Search rows…"
+                  value={viewerSearch}
+                  onChange={e => { setViewerSearch(e.target.value); setViewerScrollTop(0); if (viewerContainerRef.current) viewerContainerRef.current.scrollTop = 0; }}
+                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.85rem', width: '200px' }}
+                />
+                <button type="button" className="secondary" onClick={() => setViewerOpen(false)} style={{ padding: '0.4rem 0.85rem' }}>✕ Close</button>
+              </div>
+            </div>
+
+            {/* Sheet Tabs */}
+            {sheetMeta.length > 1 && (
+              <div style={{ display: 'flex', gap: '0', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                {sheetMeta.map(sm => (
+                  <button
+                    key={sm.name}
+                    type="button"
+                    onClick={() => openViewer(sm.name)}
+                    style={{
+                      padding: '0.4rem 0.85rem',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      background: sm.name === viewerSheet ? 'var(--text-main)' : 'transparent',
+                      color: sm.name === viewerSheet ? 'var(--bg-paper-lighter)' : 'var(--text-main)',
+                      border: '1px solid var(--border-color)',
+                      borderBottom: sm.name === viewerSheet ? 'none' : '1px solid var(--border-color)',
+                      cursor: 'pointer',
+                      marginBottom: '-1px',
+                    }}
+                  >
+                    {sm.name} <span style={{ opacity: 0.65, fontWeight: 400, fontSize: '0.75rem' }}>({sm.rowCount.toLocaleString()})</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Viewer Table — virtualized */}
+            {viewerLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                ⚙️ Loading sheet data…
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowX: 'auto', border: '1px solid var(--border-color)', background: 'var(--bg-paper-darker)' }}>
+                {/* Fixed header */}
+                <div style={{ overflowX: 'auto', position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-paper-lighter)', borderBottom: '2px solid var(--border-color)' }}>
+                  <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: 'max-content', minWidth: '100%', fontSize: '0.78rem' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '50px', minWidth: '50px', padding: '0.5rem 0.6rem', textAlign: 'center', fontFamily: 'var(--font-mono)', background: 'var(--bg-paper-lighter)', borderRight: '1px solid var(--border-color)', position: 'sticky', left: 0, zIndex: 5 }}>#</th>
+                        {viewerHeaders.map((h, i) => (
+                          <th key={i} style={{ minWidth: '130px', maxWidth: '220px', padding: '0.5rem 0.65rem', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderRight: '1px solid var(--border-color)', background: 'var(--bg-paper-lighter)', fontWeight: 700 }} title={h}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                  </table>
+                </div>
+
+                {/* Scrollable body with virtualization */}
+                <div
+                  ref={viewerContainerRef}
+                  style={{ height: `${containerHeight}px`, overflowY: 'auto', overflowX: 'auto' }}
+                  onScroll={e => setViewerScrollTop(e.currentTarget.scrollTop)}
+                >
+                  <div style={{ height: `${totalViewerRows * ROW_HEIGHT}px`, position: 'relative' }}>
+                    <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: 'max-content', minWidth: '100%', fontSize: '0.78rem', position: 'absolute', top: 0, left: 0 }}>
+                      <tbody>
+                        <tr style={{ height: `${paddingTop}px` }}><td /></tr>
+                        {visibleRows.map((row, relIdx) => {
+                          const absIdx = visibleStart + relIdx;
+                          return (
+                            <tr key={absIdx} style={{ height: `${ROW_HEIGHT}px`, borderBottom: '1px solid var(--border-color)' }}>
+                              <td style={{ width: '50px', minWidth: '50px', textAlign: 'center', padding: '0 0.5rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', borderRight: '1px solid var(--border-color)', background: 'var(--bg-paper-lighter)', position: 'sticky', left: 0 }}>{absIdx + 1}</td>
+                              {viewerHeaders.map((h, colIdx) => (
+                                <td key={colIdx} style={{ minWidth: '130px', maxWidth: '220px', padding: '0 0.65rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderRight: '1px solid var(--border-color)', fontSize: '0.78rem' }} title={row[colIdx] || ''}>
+                                  {row[colIdx] || <span style={{ color: 'var(--text-muted)', opacity: 0.4 }}>—</span>}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                        <tr style={{ height: `${paddingBottom}px` }}><td /></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────
 // Logs Tab
