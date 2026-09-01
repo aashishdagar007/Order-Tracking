@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getSessionUser, updateWorkerHeartbeat } from '@/lib/auth';
+import { bus } from '@/lib/eventBus';
 
 /** Normalize an order number: trim whitespace, strip trailing .0 from Excel floats, uppercase */
 function sanitizeOrderNo(raw) {
@@ -222,6 +223,14 @@ export async function POST(request) {
       }
     });
 
+    // Broadcast real-time event to WebSocket clients
+    bus.emit('order_update', {
+      type: 'ORDER_CREATED',
+      order: newOrder,
+      actorName: user.name,
+      actorRole: user.role,
+    });
+
     return NextResponse.json({ order: newOrder });
   } catch (error) {
     console.error('Order POST Error:', error);
@@ -305,6 +314,15 @@ export async function PUT(request) {
           action: 'Batch Update',
           detail: `Updated ${ids.length} orders to ${batchStatus || 'new settings'}`
         }
+      });
+
+      // Broadcast batch update event
+      bus.emit('order_update', {
+        type: 'BATCH_UPDATE',
+        ids,
+        status: batchStatus,
+        actorName: user.name,
+        actorRole: user.role,
       });
 
       return NextResponse.json({ success: true, count: ids.length });
@@ -401,6 +419,17 @@ export async function PUT(request) {
         action: 'Edit Order',
         detail: `Updated order ${updatedOrder.orderNo} (Status: ${updatedOrder.status})`
       }
+    });
+
+    // Broadcast real-time event to WebSocket clients
+    bus.emit('order_update', {
+      type: 'STATUS_CHANGE',
+      order: updatedOrder,
+      orderId: updatedOrder.id,
+      orderNo: updatedOrder.orderNo,
+      newStatus: updatedOrder.status,
+      actorName: user.name,
+      actorRole: user.role,
     });
 
     return NextResponse.json({ order: updatedOrder });

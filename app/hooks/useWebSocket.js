@@ -27,14 +27,8 @@ export function useWebSocket(warehouseId, onMessage) {
     const token = localStorage.getItem('wms_auth_token') || '';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     
-    // Connect to /ws/{warehouseId}?token={token} via Nginx reverse proxy
-    // In dev without Nginx, port 8000 is used if configured
-    let wsHost = window.location.host;
-    // If running standalone on Next.js port 3000 during dev, route to 8000
-    if (window.location.port === '3000') {
-      wsHost = `${window.location.hostname}:8000`;
-    }
-
+    // WebSocket is served on the same port as Next.js via server.js
+    const wsHost = window.location.host;
     const wsUrl = `${protocol}//${wsHost}/ws/${warehouseId}?token=${encodeURIComponent(token)}`;
 
     setConnectionStatus('CONNECTING');

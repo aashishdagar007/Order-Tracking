@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import * as xlsx from 'xlsx';
 import { getSessionUser, updateWorkerHeartbeat } from '@/lib/auth';
+import { bus } from '@/lib/eventBus';
 
 /** Normalize an order number */
 function sanitizeOrderNo(raw) {
@@ -373,6 +374,16 @@ export async function POST(request) {
         action: 'Excel Upload',
         detail: `Uploaded "${file.name}" [${sheetsLabel}]: ${addedCount} added, ${updatedCount} updated (${allRecordsMap.size} total rows processed)`
       }
+    });
+
+    // Broadcast bulk upload event to all connected dashboards
+    bus.emit('order_update', {
+      type: 'BULK_UPLOAD',
+      added: addedCount,
+      updated: updatedCount,
+      fileName: file.name,
+      actorName: user.name,
+      actorRole: user.role,
     });
 
     return NextResponse.json({

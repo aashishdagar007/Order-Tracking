@@ -38,7 +38,7 @@ export default function ClientDashboard() {
 
     try {
       setLoading(true);
-      const res = await fetch('/api/v2/orders?limit=300', {
+      const res = await fetch('/api/orders?limit=300', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

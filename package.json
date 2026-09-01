@@ -2,13 +2,14 @@
   "name": "app-tmp",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "engines": {
     "node": "20"
   },
   "scripts": {
-    "dev": "next dev -H 0.0.0.0",
+    "dev": "node server.js",
     "build": "next build",
-    "start": "next start -H 0.0.0.0",
+    "start": "NODE_ENV=production node server.js",
     "lint": "eslint",
     "seed": "node prisma/seed.js",
     "tunnel": "npx localtunnel --port 3000",
@@ -19,11 +20,14 @@
     "@capacitor/android": "^6.2.0",
     "@capacitor/cli": "^6.2.0",
     "@capacitor/core": "^6.2.0",
-    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/adapter-better-sqlite3": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "better-sqlite3": "^12.6.0",
     "jose": "^6.2.8",
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "ws": "^8.21.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

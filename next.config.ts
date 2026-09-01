@@ -13,15 +13,6 @@ const nextConfig: NextConfig = {
     "*.loca.lt",
     "*.trycloudflare.com"
   ],
-  async rewrites() {
-    const fastapiHost = process.env.FASTAPI_INTERNAL_URL || "http://127.0.0.1:8000";
-    return [
-      {
-        source: "/api/v2/:path*",
-        destination: `${fastapiHost}/:path*`,
-      },
-    ];
-  },
 };
 
 export default nextConfig;
