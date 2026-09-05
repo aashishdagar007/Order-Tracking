@@ -1,0 +1,17 @@
+{
+  "/admin/page": "app/admin/page.js",
+  "/api/activity/route": "app/api/activity/route.js",
+  "/api/analytics/kpis/route": "app/api/analytics/kpis/route.js",
+  "/api/analytics/route": "app/api/analytics/route.js",
+  "/api/auth/route": "app/api/auth/route.js",
+  "/api/config/route": "app/api/config/route.js",
+  "/api/health/route": "app/api/health/route.js",
+  "/api/logs/route": "app/api/logs/route.js",
+  "/api/orders/route": "app/api/orders/route.js",
+  "/api/system/update/route": "app/api/system/update/route.js",
+  "/api/users/route": "app/api/users/route.js",
+  "/api/zones/route": "app/api/zones/route.js",
+  "/client/page": "app/client/page.js",
+  "/page": "app/page.js",
+  "/worker/page": "app/worker/page.js"
+}

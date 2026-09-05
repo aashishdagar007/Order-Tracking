@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Warehouse WMS Mobile Terminal</title>
+  <style>
+    :root {
+      --bg-paper: #12151a;
+      --bg-paper-lighter: #1c2128;
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --border-color: #30363d;
+      --accent-blue: #58a6ff;
+      --accent-rust: #f85149;
+      --accent-green: #3fb950;
+      --accent-amber: #d29922;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-paper);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background: var(--bg-paper-lighter);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 2rem 1.5rem;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.35rem; margin-bottom: 0.25rem; font-weight: 700; }
+    p { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+    .input-group { text-align: left; margin-bottom: 1rem; }
+    label { display: block; font-size: 0.78rem; font-weight: 600; text-transform: uppercase; margin-bottom: 0.4rem; color: var(--text-muted); }
+    input {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      font-size: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: #0d1117;
+      color: #fff;
+      font-family: monospace;
+      outline: none;
+    }
+    input:focus { border-color: var(--accent-blue); }
+    .btn-connect {
+      width: 100%;
+      padding: 0.85rem;
+      background: var(--accent-blue);
+      color: #000;
+      border: none;
+      font-size: 0.95rem;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      letter-spacing: 0.05em;
+    }
+    .btn-offline {
+      width: 100%;
+      padding: 0.85rem;
+      background: rgba(210, 153, 34, 0.15);
+      border: 1px solid var(--accent-amber);
+      color: var(--accent-amber);
+      font-size: 0.95rem;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-offline:active { opacity: 0.8; }
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      font-size: 0.82rem;
+      border-radius: 4px;
+      background: #0d1117;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 500;
+    }
+    .status.success {
+      background: rgba(63,185,80,0.15);
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+      font-weight: 600;
+    }
+    .status.error {
+      background: rgba(248,81,73,0.15);
+      border-color: var(--accent-rust);
+      color: var(--accent-rust);
+      font-weight: 600;
+    }
+    .hint-box {
+      margin-top: 1.25rem;
+      padding: 0.85rem;
+      background: rgba(0,0,0,0.2);
+      border: 1px dashed var(--border-color);
+      border-radius: 4px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-align: left;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📦</div>
+    <h1>WAREHOUSE WMS</h1>
+    <p>Mobile Fulfillment &amp; Scanner Terminal</p>
+
+    <!-- Connect to Laptop -->
+    <div class="input-group">
+      <label for="serverUrl">Host Laptop Wi-Fi IP / Address</label>
+      <input type="text" id="serverUrl" placeholder="http://192.168.1.120:3000" />
+    </div>
+
+    <button type="button" class="btn-connect" id="connectBtn" onclick="handleConnect()">
+      🟢 CONNECT TO LAPTOP SERVER
+    </button>
+
+    <button type="button" class="btn-offline" id="offlineBtn" onclick="launchOfflineMode()">
+      ⚡ STANDALONE OFFLINE MODE
+    </button>
+
+    <div id="status" class="status">
+      Checking connection to laptop...
+    </div>
+
+    <div class="hint-box">
+      <strong>💡 Operating Options:</strong><br />
+      • <strong>Laptop Online:</strong> Connect to sync live changes to SQLite.<br />
+      • <strong>Laptop Offline:</strong> Tap <em>Standalone Offline Mode</em> to scan, pick, pack, and print labels locally on phone. Syncs automatically when laptop is turned on!
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'wms_server_url';
+    const input = document.getElementById('serverUrl');
+    const statusBox = document.getElementById('status');
+    const btn = document.getElementById('connectBtn');
+
+    // Default or saved URL
+    const saved = localStorage.getItem(STORAGE_KEY) || 'http://192.168.1.120:3000';
+    input.value = saved;
+
+    function setStatus(msg, type = '') {
+      statusBox.className = 'status ' + type;
+      statusBox.innerText = msg;
+    }
+
+    // Auto-probe host on load
+    window.addEventListener('DOMContentLoaded', async () => {
+      setStatus('Probing laptop connection at ' + input.value + '...', '');
+      try {
+        const res = await fetch(input.value + '/api/config', {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000)
+        });
+        if (res.ok) {
+          setStatus('🟢 Host laptop is ONLINE. Ready to connect.', 'success');
+        } else {
+          setStatus('🟠 Laptop is offline. You can use Standalone Offline Mode.', '');
+        }
+      } catch {
+        setStatus('🟠 Laptop is offline. Tap "Standalone Offline Mode" to operate.', '');
+      }
+    });
+
+    async function handleConnect() {
+      let raw = input.value.trim();
+      if (!raw) {
+        setStatus('Please enter host laptop IP', 'error');
+        return;
+      }
+      if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
+        raw = 'http://' + raw;
+      }
+      raw = raw.replace(/\/+$/, '');
+
+      localStorage.setItem(STORAGE_KEY, raw);
+      setStatus('⏳ Connecting to ' + raw + '...', '');
+
+      try {
+        const res = await fetch(raw + '/api/auth', { method: 'GET', signal: AbortSignal.timeout(3000) });
+        setStatus('✅ Connected! Launching terminal...', 'success');
+        setTimeout(() => { window.location.href = raw; }, 400);
+      } catch (e) {
+        setStatus('🚀 Attempting direct navigation to ' + raw + '...', 'success');
+        setTimeout(() => { window.location.href = raw; }, 400);
+      }
+    }
+
+    function launchOfflineMode() {
+      const raw = input.value.trim() || 'http://192.168.1.120:3000';
+      localStorage.setItem(STORAGE_KEY, raw);
+      window.location.href = './offline-terminal.html';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-09-05T12:03:59.456Z",
+  "originalDbPath": "D:\\AASHISH\\Projects\\Order Tracking\\scripts\\_e2e_sandbox\\dev.db",
+  "rowCounts": {
+    "Order": 13338,
+    "User": 1,
+    "Log": 26,
+    "OrderEvent": 13338
+  },
+  "fileSizes": {
+    "devDb": 20414464,
+    "wal": 0,
+    "shm": 0
+  },
+  "sha256": "0785dbe18c7b7db7719ea6d68aa8d90160f56e92a6905b118d337daf0401584d",
+  "integrityOk": true
+}

@@ -28,6 +28,13 @@ android/
 # misc
 .DS_Store
 *.pem
+keys/update_signing_key.pem
+*.wms
+*.lock
+_update_staging/
+_previous_version/
+update_progress.json
+update_state.json
 
 # debug
 npm-debug.log*
@@ -40,6 +47,7 @@ yarn-error.log*
 
 # database
 prisma/dev.db
+prisma/backups/
 *.db
 
 # vercel

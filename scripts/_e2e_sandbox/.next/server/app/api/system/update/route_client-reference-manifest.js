@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/system/update/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"D:\\AASHISH\\Projects\\Order Tracking\\app\\api\\system\\update\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

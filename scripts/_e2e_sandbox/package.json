@@ -1,0 +1,49 @@
+{
+  "name": "app-tmp",
+  "version": "1.9.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "node server.js",
+    "build": "next build --webpack",
+    "start": "node server.js --production",
+    "lint": "eslint",
+    "seed": "node prisma/seed.js",
+    "tunnel": "npx localtunnel --port 3000",
+    "build:windows": "node windows/build_windows_dist.js",
+    "build:apk": "next build && cap sync android",
+    "build:update": "node scripts/build_update.js",
+    "build:patch": "node scripts/build_update.js --type=patch",
+    "keys:generate": "node scripts/generate_keys.js"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0",
+    "@prisma/adapter-better-sqlite3": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "adm-zip": "^0.6.0",
+    "better-sqlite3": "^12.6.0",
+    "jose": "^6.2.8",
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ws": "^8.21.3",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "prisma": "^7.9.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1,59 +1,77 @@
 @echo off
 REM ─────────────────────────────────────────────────────────────────────────────
-REM Warehouse WMS — Node.js Direct Launcher (no Docker required)
+REM Warehouse WMS — Node.js Local Server Launcher
 REM ─────────────────────────────────────────────────────────────────────────────
 
 title Warehouse WMS - Local Server
+cls
 
 echo =================================================================
-echo    Warehouse WMS -- Node.js Server Launcher
+echo    Warehouse WMS -- Node.js Local Server Launcher
 echo =================================================================
 echo.
 
-REM 1. Check Node.js
-echo [*] Checking Node.js...
+REM 1. Check Node.js installation
+echo [*] Checking Node.js installation...
 node --version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [-] Node.js is not installed or not in PATH.
-    echo     Download: https://nodejs.org/
+    echo [-] ERROR: Node.js is not installed or not in your PATH.
+    echo     Please install Node.js from https://nodejs.org/
+    echo.
     pause
     exit /b 1
 )
-for /f "tokens=*" %%v in ('node --version') do echo [+] Node.js %%v found.
 
-REM 2. Install dependencies if needed
-if not exist "node_modules" (
-    echo [*] Installing dependencies...
-    npm install --legacy-peer-deps
+for /f "tokens=*" %%v in ('node --version') do echo [+] Node.js %%v detected.
+
+REM 2. Install dependencies if node_modules is missing
+if not exist node_modules (
+    echo.
+    echo [*] First-time setup: Installing required dependencies...
+    echo     (This may take 1-2 minutes depending on your internet connection)
+    call npm install --legacy-peer-deps --no-fund --no-audit
     if %ERRORLEVEL% NEQ 0 (
-        echo [-] npm install failed.
+        echo.
+        echo [-] ERROR: Dependency installation failed.
         pause
         exit /b 1
     )
-    echo [+] Dependencies installed.
+    echo [+] Dependencies installed successfully.
 ) else (
-    echo [+] node_modules found -- skipping install.
+    echo [+] Dependencies already installed.
 )
 
-REM 3. Initialize database (safe -- creates tables only if they don't exist)
-echo [*] Initializing database...
-npx prisma db push --accept-data-loss >nul 2>&1
+REM 3. Ensure database schema is ready
+echo.
+echo [*] Checking database schema...
+call npx prisma db push --accept-data-loss >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [!] prisma db push had issues -- continuing anyway (auto-init in app).
+    echo [!] Note: Schema push skipped; auto-initialization will run on server start.
 ) else (
-    echo [+] Database schema ready.
+    echo [+] Database schema verified.
 )
 
-REM 4. Launch server
-echo.
-echo [*] Starting Warehouse WMS...
+REM 4. Server information & launch
 echo.
 echo =================================================================
-echo    Access the app at: http://localhost:3000
-echo    Default Login:     admin / admin123
-echo    WebSocket:         ws://localhost:3000/ws/main-warehouse
-echo -----------------------------------------------------------------
-echo    To stop: press Ctrl+C in this window
+echo    Server is starting up!
+echo.
+echo    URL:            http://localhost:3000
+echo    Default Login:  admin / admin123
+echo    WebSocket:      ws://localhost:3000/ws/main-warehouse
+echo.
+echo    Press Ctrl+C in this window to stop the server.
 echo =================================================================
 echo.
-npm run dev
+
+REM Open browser after a 3-second delay in the background
+start /min cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:3000"
+
+REM 5. Run development server
+call npm run dev
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [-] Server exited with code %ERRORLEVEL%.
+    pause
+)
